@@ -1,10 +1,10 @@
 import type { Player } from './data/types'
 import { BAGSHOT_SQUAD } from './data/squad'
 
-// v2: the placeholder squad was replaced by the real one, and players gained a
-// `value`. Bumping the key retires any saved v1 squad rather than letting stale
-// placeholder players shadow the real squad.
-const SQUAD_KEY = 'bcc.squad.v2'
+// Bumped whenever the shipped squad changes shape, so a stale save can't shadow
+// it: v2 replaced the placeholders with the real squad and added `value`, v3
+// trimmed it from 42 players to 24.
+const SQUAD_KEY = 'bcc.squad.v3'
 const RECORD_KEY = 'bcc.record.v1'
 
 export interface Record {

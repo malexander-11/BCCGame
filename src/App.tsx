@@ -52,17 +52,19 @@ export default function App() {
     setCustom(false)
   }, [])
 
+  // Selection starts empty on purpose — picking the side is the point, and a
+  // pre-filled XI turns the screen into something you tap past. AUTO is there
+  // for anyone who'd rather not.
   const startMatch = useCallback((club: Club) => {
-    const picked = autoSelectXI(squad)
     setOpponent(club)
     setSeed(randomSeed())
-    setXi(picked)
-    setPlan(autoPlan(picked))
+    setXi([])
+    setPlan([])
     setFirst(null)
     setSecond(null)
     setResult(null)
     setScreen('selection')
-  }, [squad])
+  }, [])
 
   const toggle = useCallback((p: Player) => {
     setXi((prev) => {

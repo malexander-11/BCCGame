@@ -74,7 +74,9 @@ Rough guide for a Surrey Championship side:
 
 ## The squad
 
-The real 42-man Bagshot squad is in [`src/data/squad.ts`](src/data/squad.ts):
+The Bagshot squad is in [`src/data/squad.ts`](src/data/squad.ts) — 24 players,
+trimmed from the full 42 so that everyone listed is someone who could actually
+make the side:
 
 ```ts
 {
@@ -112,8 +114,9 @@ though — to change the squad for everyone, edit the file and push.
 
 ## How a match runs
 
-1. **Selection** — eleven from the squad. You need a keeper and at least five
-   who can bowl.
+1. **Selection** — eleven from the squad, starting from a blank sheet. You need
+   a keeper and at least five who can bowl. `AUTO` picks a legal side if you'd
+   rather not.
 2. **The attack** — share 45 overs between five and seven bowlers, max nine
    each, and give each a spell: new ball, middle, or death. The engine builds
    the over-by-over rota from that, and nobody bowls two overs in a row.
