@@ -90,46 +90,32 @@ export const CHASE_PLANS: { id: ChasePlan; label: string; blurb: string }[] = [
   },
 ]
 
+export type Window = 'newBall' | 'middle' | 'death'
+
 /**
- * A spell: "six overs starting at over one", "bring him back at thirty-two".
+ * How many overs a bowler bowls in each third of the innings.
  *
- * This replaces the old new-ball / middle / death buckets, which were a
- * fiction — a bowler with nine overs held for "the new ball" physically cannot
- * bowl them all inside the nine-over powerplay, so roughly a quarter of his
- * overs leaked elsewhere and the screen never said so.
+ * This has been through two wrong answers. First it was a *preference* — hold
+ * him for the new ball — which the rota could only treat as a suggestion, so a
+ * bowler with nine overs marked "new ball" had to bowl most of them elsewhere
+ * and nothing said so. Then it was explicit spells ("six from over one"), which
+ * was honest but made the screen twelve phone-screens long and demanded mental
+ * arithmetic to read.
  *
- * Bowlers alternate ends, so a spell runs every *other* over: five overs from
- * over 1 means overs 1, 3, 5, 7 and 9. That's real cricket, it spans the phase
- * boundaries naturally, and the rota can honour it exactly.
+ * A count per window is both. It's a quantity, not a wish, so the rota can
+ * satisfy it exactly and the old silent leak cannot come back. And it's three
+ * numbers you can read at a glance.
  */
-export interface Spell {
-  /** The over he comes on, 1-45. */
-  from: number
-  /** How many overs he bowls in this spell. */
-  overs: number
-}
-
-/** Last over of a spell — every other over from `from`. */
-export const spellEnd = (s: Spell) => s.from + (s.overs - 1) * 2
-
 export interface BowlerAllocation {
   playerId: string
-  /** One or more spells. Total overs is the sum across them. */
-  spells: Spell[]
+  overs: Record<Window, number>
 }
 
-/** Every over this bowler is down to bowl, in order. */
-export function spellOvers(a: BowlerAllocation): number[] {
-  const out: number[] = []
-  for (const s of a.spells) {
-    for (let i = 0; i < s.overs; i++) out.push(s.from + i * 2)
-  }
-  return out.sort((x, y) => x - y)
-}
+export const NO_OVERS: Record<Window, number> = { newBall: 0, middle: 0, death: 0 }
 
-/** Total overs across all of a bowler's spells. */
+/** Total overs across all three windows. */
 export const allocatedOvers = (a: BowlerAllocation) =>
-  a.spells.reduce((n, s) => n + s.overs, 0)
+  a.overs.newBall + a.overs.middle + a.overs.death
 
 export type BowlingPlan = BowlerAllocation[]
 
@@ -288,3 +274,36 @@ export const RULES = {
   powerplayUntil: 9,
   deathFrom: 36,
 } as const
+
+// ------------------------------------------------------- the bowling windows
+//
+// Declared after RULES because they're derived from it.
+
+/** First and last over of each third of the innings. */
+export const WINDOWS: { key: Window; label: string; from: number; to: number }[] = [
+  { key: 'newBall', label: 'NEW BALL', from: 1, to: RULES.powerplayUntil },
+  { key: 'middle', label: 'MIDDLE', from: RULES.powerplayUntil + 1, to: RULES.deathFrom - 1 },
+  { key: 'death', label: 'DEATH', from: RULES.deathFrom, to: RULES.overs },
+]
+
+/** How many overs a window holds — 9, 26 and 10. */
+export const windowSize = (w: Window) => {
+  const win = WINDOWS.find((x) => x.key === w)!
+  return win.to - win.from + 1
+}
+
+/**
+ * Most overs one bowler can take out of a window.
+ *
+ * He can't bowl two in a row, so at best he has every other one — five of the
+ * nine powerplay overs, not nine. Still capped by his overall allowance.
+ */
+export const windowCap = (w: Window) =>
+  Math.min(Math.ceil(windowSize(w) / 2), RULES.maxOversPerBowler)
+
+/** Which window an over falls in. */
+export function windowOf(over: number): Window {
+  if (over <= RULES.powerplayUntil) return 'newBall'
+  if (over >= RULES.deathFrom) return 'death'
+  return 'middle'
+}

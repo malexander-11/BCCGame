@@ -152,13 +152,15 @@ Anyone since dropped from the squad or unavailable simply isn't there.
    tap two names to swap them outright. Anyone unavailable is hidden by default
    — one toggle brings them back if you want to see what you're missing. You
    need a keeper and at least five who can bowl, and `AUTO` picks a legal side.
-2. **The attack** — share 45 overs between five and seven bowlers, max nine
-   each, by giving each one **spells**: when he comes on and how long for.
-   "Six from over one, then three from thirty-four." Ends change every over, so
-   a five-over spell from over 1 is overs 1, 3, 5, 7 and 9. Your frontline sits
-   above the part-timers, sorted by what they're actually here for, and a
-   preview strip shows the **over-by-over rota you'll actually get** — seeded
-   from the match itself, so it isn't an estimate. Nobody bowls two in a row.
+2. **The attack** — say how many overs each bowler gets in each third of the
+   innings: **new ball, middle, death**. Three numbers per man. Each window has
+   to come out exact — 9, 26 and 10 — so the panel at the top turns green only
+   when the plan actually adds up, and the counts are honoured to the over.
+   Your frontline sits above the part-timers, sorted by what they're here for,
+   unused bowlers collapse to a line, and a preview strip shows the
+   **over-by-over rota you'll actually get** — seeded from the match itself, so
+   it isn't an estimate. Bowlers work in tandem from either end, so they bowl
+   proper spells rather than one over each in rotation.
 3. **Fielding innings** — they bat. The scoreboard carries the two men at the
    crease with their runs and balls, and the feed runs a scorebook strip for
    every over (`. 1 4 . W 2`), so every single ball is visible. Pause, run it at
@@ -376,7 +378,7 @@ each other now gives a median of 178, with **48% of innings between 160 and
 200** and 250-plus down from a quarter of all innings to one in a hundred.
 
 It also checks that better ratings win more often, that no bowler exceeds nine
-overs or bowls consecutively, that awkward spell shapes can't produce an
+overs or bowls consecutively, that lopsided allocations can't produce an
 illegal rota, that the DLS resource table is monotonic and pars correctly at
 both ends of an innings, that swing fires inside its window and nowhere else,
 that an availability score means what it says at every point on the scale, that
@@ -384,12 +386,20 @@ form stays in range and actually changes what you score, that fresh air games
 and walk-outs can never leave you unable to field a legal XI, and that a season
 lands in the intended difficulty band.
 
-Four of them keep the *display* honest rather than the simulation: the
+Five of them keep the *display* honest rather than the simulation: the
 scorebook strip must reconcile with its own over, the crease snapshot can never
 show a batter already out, the rota preview must name the bowler who really
-bowls, and — the one the spell rewrite exists for — **spells are honoured
-exactly, 100% of the time**. The old phase model leaked 16% of overs out of the
-window you chose and never mentioned it.
+bowls, **window counts are honoured exactly, 100% of the time**, and **bowlers
+bowl in spells** — averaging seven-and-a-half unbroken overs from one end
+rather than being rotated one over at a time.
+
+Those last two are scar tissue. The first model asked for a *preference*, which
+the rota treated as a hint, so 16% of overs were bowled outside the window you
+picked and nothing said so. The fix for that was explicit spells, which was
+honest but made the screen twelve phone-screens long — and, because the rota
+underneath was rotating five bowlers an over at a time, rendered as thirty
+one-over "spells". Counts per window are both honest and three numbers you can
+read at a glance; the tandem rule is what makes them describe real spells.
 
 Three of them keep the display honest rather than the simulation: the scorebook
 strip has to reconcile with its own over — six legal balls, wickets and runs

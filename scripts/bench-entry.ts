@@ -1,7 +1,7 @@
 // Bundle entry for the bench harness — re-exports everything scripts/bench.mjs needs.
 export { BAGSHOT_SQUAD } from '../src/data/squad'
 export { OPPOSITION, OPPOSITION_BY_TIER } from '../src/data/opposition'
-export { RULES, DEFAULT_AVAILABILITY, spellOvers, allocatedOvers, spellEnd } from '../src/data/types'
+export { RULES, DEFAULT_AVAILABILITY, allocatedOvers, windowOf, WINDOWS, windowSize, windowCap } from '../src/data/types'
 export { simulateMatch, simulateFieldingInnings, simulateBattingInnings, buildMatchResult } from '../src/engine/match'
 export { autoPlan, buildRota, validatePlan } from '../src/engine/rota'
 export { autoBattingOrder, autoSelectXI, teamStrength } from '../src/engine/ai'
