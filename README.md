@@ -156,18 +156,41 @@ Anyone since dropped from the squad or unavailable simply isn't there.
 Availability is what actually decides a village Saturday XI, so a season models
 it. Every round:
 
-- **three to five have other plans** — a wedding, a stag do, work, "a
-  long-standing golf booking". One week only.
+- **some have other plans** — a wedding, a stag do, work, "a long-standing golf
+  booking". One week only, and rolled per player against his availability score
+  (below).
 - **three to five are injured** — topped back up to that band each round, with
   absences running one to eight weeks depending on what they've done.
 - **occasionally somebody falls out with the club** — roughly twice a season,
   and it always seems to be one of the good ones.
 
-That's typically eight or nine of twenty-seven missing, which is the point:
-you cannot pick the same eleven every week, so squad depth stops being
-decoration and selection becomes a real decision. Unavailable players stay
+### The availability score
+
+Every player carries an **availability score out of 10**: how many weeks in ten
+he actually turns up. Ten never misses; three is the lad who plays a handful of
+games and is a genuine gamble every time you pencil him in. It's editable per
+player in the squad screen, shown as a coloured chip on selection, and you can
+sort the squad list by it.
+
+It's rolled fresh each round rather than applied as a flat penalty, so a 4/10
+is not "a worse player" — he's the same player, available less often. That
+changes what a rating is worth: a brilliant 3/10 might win you two games a
+season, while a solid 9/10 is in your side every week and quietly worth more.
+
+The score covers **other plans only**. Injuries are rolled separately and ignore
+it entirely, because a torn hamstring doesn't care how keen anybody is — so your
+most reliable man can still be crocked for a month.
+
+Typically eight or nine of twenty-seven are missing on any given week, which is
+the point: you cannot pick the same eleven every week, so squad depth stops
+being decoration and selection becomes a real decision. Unavailable players stay
 visible on the selection screen, greyed out with the reason, so you can see
 exactly what you're missing.
+
+There is one guard on all of it. If absences ever leave a squad that can't raise
+a legal XI — eleven players including five who bowl — the game talks the busy
+ones round, most reliable first, until it can. It never recalls the injured or
+anyone who has walked out. A side you can't pick is a bug, not a challenge.
 
 Both keepers are out about one round in ten. Rather than block selection, the
 gloves go to whoever bats last — and it shows, in byes and in chances put down

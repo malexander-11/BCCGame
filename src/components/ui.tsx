@@ -191,3 +191,12 @@ export function roleColour(role: string): string {
     default: return theme.green
   }
 }
+
+/** Colour a 0-10 availability score. Green turns up, red barely plays. */
+export function availabilityColour(v: number): string {
+  if (v >= 9) return theme.green
+  if (v >= 7) return theme.cream
+  if (v >= 5) return theme.pitch
+  if (v >= 3) return theme.gold
+  return theme.red
+}

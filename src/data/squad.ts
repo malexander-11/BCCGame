@@ -26,6 +26,12 @@ import type { Player } from './types'
  * ATT sharply and DEF slightly for the first dozen overs, then fades to nothing
  * — so a swing bowler is worth far more opening the bowling than first change.
  *
+ * `availability` (0-10, optional) is how many weeks in ten he actually turns up.
+ * It is rolled fresh every round, so a 4 is a genuine gamble rather than a flat
+ * downgrade, and it covers other plans only — injuries are rolled separately,
+ * because a torn hamstring does not care how keen anybody is. Absent means
+ * DEFAULT_AVAILABILITY.
+ *
  * A trimmed 27-man squad: enough for a keeper, a full attack and real choices in
  * the middle order, without a long tail who would never be picked. Add anyone
  * back by pasting their entry in; nothing depends on the size.

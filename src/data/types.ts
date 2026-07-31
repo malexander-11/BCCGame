@@ -33,7 +33,18 @@ export interface Player {
    * bowler is worth far more opening than first change.
    */
   swing?: number
+  /**
+   * 0-10. How often he actually turns up. Ten is every week without fail; one
+   * is the lad who plays twice a season. It drives the weekly "other plans"
+   * roll, not injuries — a bad back doesn't care how keen you are.
+   *
+   * Defaults to DEFAULT_AVAILABILITY when absent.
+   */
+  availability?: number
 }
+
+/** Assumed availability for a player with no score set. */
+export const DEFAULT_AVAILABILITY = 8
 
 export type Tier = 'derby' | 'midtable' | 'promotion' | 'premier'
 

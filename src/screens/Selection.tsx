@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react'
-import { RULES } from '../data/types'
+import { DEFAULT_AVAILABILITY, RULES } from '../data/types'
 import type { Club, Player } from '../data/types'
 import { availableBowlers } from '../engine/ratings'
 import { formBand } from '../engine/form'
 import { theme } from '../theme'
 import {
-  Eyebrow, GhostButton, Notice, PrimaryButton, ScreenHeader, StatBar, roleColour, roleOf,
+  availabilityColour, Eyebrow, GhostButton, Notice, PrimaryButton, ScreenHeader,
+  StatBar, roleColour, roleOf,
 } from '../components/ui'
 
 export interface SelectionIssue { message: string }
@@ -29,14 +30,15 @@ export function selectionIssues(xi: Player[], keeperAvailable = true): Selection
   return issues
 }
 
-type Sort = 'form' | 'batting' | 'bowling' | 'value'
+type Sort = 'form' | 'batting' | 'bowling' | 'avail' | 'value'
 
 const SORTS: [Sort, string][] = [
-  ['form', 'FORM'], ['batting', 'BAT'], ['bowling', 'BWL'], ['value', '£'],
+  ['form', 'FORM'], ['batting', 'BAT'], ['bowling', 'BWL'], ['avail', 'AVL'], ['value', '£'],
 ]
 
 const batIndex = (p: Player) => 0.62 * p.bat.skill + 0.38 * p.bat.pwr
 const bowlIndex = (p: Player) => 0.5 * p.bowl.def + 0.5 * p.bowl.att
+const availOf = (p: Player) => p.availability ?? DEFAULT_AVAILABILITY
 
 export function Selection({
   squad, opponent, selected, unavailable, forms, onToggle, onReorder, onAuto, onBack, onNext,
@@ -92,6 +94,7 @@ export function Selection({
       case 'batting': return then((a, b) => batIndex(b) - batIndex(a))
       case 'bowling': return then((a, b) => bowlIndex(b) - bowlIndex(a))
       case 'value': return then((a, b) => b.value - a.value)
+      case 'avail': return then((a, b) => availOf(b) - availOf(a) || batIndex(b) - batIndex(a))
       case 'form':
         return then((a, b) => (forms?.[b.id] ?? 50) - (forms?.[a.id] ?? 50) || batIndex(b) - batIndex(a))
       default:
@@ -282,6 +285,16 @@ export function Selection({
                         {formBand(forms[p.id] ?? 50).label}
                       </span>
                     )}
+                    <span
+                      className="disp num text-[9px] font-bold px-1.5 rounded tracking-wider"
+                      title={`Availability ${availOf(p)}/10 — how often he turns up`}
+                      style={{
+                        background: `${availabilityColour(availOf(p))}22`,
+                        color: availabilityColour(availOf(p)),
+                      }}
+                    >
+                      {availOf(p)}/10
+                    </span>
                     <span className="disp num text-[10px]" style={{ color: theme.faint }}>
                       £{p.value}m
                     </span>

@@ -1,4 +1,4 @@
-import { RULES } from '../data/types'
+import { DEFAULT_AVAILABILITY, RULES } from '../data/types'
 import type { Player } from '../data/types'
 import { AWAY_REASONS, FALLOUTS, INJURIES, RETURN_LINES } from '../data/events'
 import { isBowler } from './ratings'
@@ -10,11 +10,16 @@ import type { Rng } from './rng'
  *
  * Three kinds of absence, deliberately different in shape:
  *
- *   away    one week only, and everybody is equally likely to have plans
+ *   away    one week only, rolled per player against his availability score
  *   injury  several weeks, topped up so three to five are always crocked
  *   fallout rare, long, and it always seems to be somebody good
  *
- * The point is that you cannot pick the same eleven every week. Squad depth
+ * Only `away` reads the availability score, and that is the point of the split:
+ * keenness decides whether a fit player fancies it, but a torn hamstring does
+ * not care how keen he is. So your most reliable man can still be crocked, and
+ * your 3-out-of-10 is a genuine gamble every single week.
+ *
+ * The result is that you cannot pick the same eleven every week. Squad depth
  * stops being decoration and selection becomes a real decision each round.
  */
 
@@ -50,8 +55,16 @@ export interface AvailabilityState {
 
 /** Injuries are topped up to this many at the start of every round. */
 const INJURY_TARGET = { min: 3, max: 5 }
-/** How many have other plans each week. */
-const AWAY_COUNT = { min: 3, max: 5 }
+/**
+ * Scales every player's chance of having other plans.
+ *
+ * At 1.0 the availability score reads literally: 7 out of 10 means he turns up
+ * seven weeks in ten. Raise it to make the club flakier across the board, lower
+ * it to make everyone more reliable, without touching a single player's score.
+ */
+const AWAY_PRESSURE = 1.0
+/** Nobody is missing more often than this, whatever their score. */
+const MAX_AWAY_CHANCE = 0.92
 /** Chance per round that somebody falls out with the club. */
 const FALLOUT_CHANCE = 0.18
 /** Never leave the manager with fewer than this to pick from. */
@@ -59,6 +72,12 @@ const MIN_AVAILABLE = 13
 
 const rollBetween = (rng: Rng, min: number, max: number) =>
   min + Math.floor(rng() * (max - min + 1))
+
+const clampScore = (v: number) => (v < 0 ? 0 : v > 10 ? 10 : v)
+
+/** How often this player turns up, 0-1. */
+export const availabilityRate = (p: Player) =>
+  clampScore(p.availability ?? DEFAULT_AVAILABILITY) / 10
 
 export const emptyAvailability = (): AvailabilityState => ({ absences: [], away: [], log: [] })
 
@@ -146,15 +165,22 @@ export function rollRound(
   }
 
   // --- this week's plans -------------------------------------------------
+  //
+  // Rolled per player rather than by drawing a fixed number, so an
+  // availability score actually means something: a 3-out-of-10 misses most
+  // weeks and a 10 is there every time. The count that falls out varies with
+  // the squad, which is the point.
   const away: Absence[] = []
-  const wantAway = rollBetween(rng, AWAY_COUNT.min, AWAY_COUNT.max)
   const pool = squad.filter((p) => !isOut(p.id))
   const reasons = [...AWAY_REASONS]
-  for (let i = 0; i < wantAway; i++) {
-    const remaining = pool.filter((p) => !away.some((a) => a.playerId === p.id))
-    if (pool.length - away.length <= MIN_AVAILABLE - absences.length) break
-    if (remaining.length === 0) break
-    const p = remaining[pickIndex(rng, remaining.length)]
+  for (const p of pool) {
+    // `pool` already excludes the injured, so this is the count still standing.
+    // Stopping here rather than leaning on ensurePickable matters: every player
+    // it has to talk round is one whose score didn't mean what it said.
+    if (pool.length - away.length <= MIN_AVAILABLE) break
+    const score = p.availability ?? DEFAULT_AVAILABILITY
+    const chance = Math.min(MAX_AWAY_CHANCE, AWAY_PRESSURE * (1 - clampScore(score) / 10))
+    if (rng() >= chance) continue
     const reason = reasons.length
       ? reasons.splice(pickIndex(rng, reasons.length), 1)[0]
       : 'unavailable'
@@ -180,7 +206,13 @@ export function ensurePickable(
     const fit = availablePlayers(squad, next)
     if (fit.length >= 11 && fit.filter(isBowler).length >= RULES.minBowlers) break
     if (next.away.length === 0) break
-    const away = [...next.away]
+    // Talk round the most reliable first — he's the one who'd actually come.
+    const byId = new Map(squad.map((p) => [p.id, p]))
+    const away = [...next.away].sort((a, b) => {
+      const pa = byId.get(a.playerId)
+      const pb = byId.get(b.playerId)
+      return (pa ? availabilityRate(pa) : 0) - (pb ? availabilityRate(pb) : 0)
+    })
     const recalled = away.pop()!
     next = {
       ...next,

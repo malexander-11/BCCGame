@@ -33,7 +33,8 @@ const {
   autoPlan, autoBattingOrder, autoSelectXI, buildRota, validatePlan,
   createSeason, nextFixture, recordRound, standings, seasonComplete,
   dlsPar, resources, swingBoost, SWING_WINDOW,
-  initialAvailability, rollRound, availablePlayers, unavailableMap,
+  initialAvailability, rollRound, availablePlayers, unavailableMap, availabilityRate,
+  DEFAULT_AVAILABILITY,
   seasonForms, formMultiplier, freshAirPlayers, NEUTRAL_FORM,
 } = await import(join(outdir, 'engine.mjs'))
 
@@ -326,11 +327,61 @@ for (let s = 0; s < 300; s++) {
 }
 
 const rounds = awayCounts.length
-check('away per round', mean(awayCounts), 3, 5, (v) => v.toFixed(2))
+// Away is no longer a fixed draw — it's an independent roll per player against
+// his availability score, so the count follows from the squad. The band is wide
+// on purpose: change the scores and this number is *meant* to move.
+const expectedAway = BAGSHOT_SQUAD.reduce((n, p) => n + (1 - availabilityRate(p)), 0)
+check('away per round', mean(awayCounts), 2.5, 7.5, (v) => v.toFixed(2))
+check(
+  'away count tracks the squad scores',
+  Math.abs(mean(awayCounts) - expectedAway), 0, 1.2, (v) => `±${v.toFixed(2)} of ${expectedAway.toFixed(1)}`,
+)
 check('injured at any time', mean(injuredCounts), 3, 5, (v) => v.toFixed(2))
 check('always able to field an XI', unpickable, 0, 0, (v) => v)
 check('expired absences cleared', negativeRounds, 0, 0, (v) => v)
 check('fallouts are rare', (falloutTotal / rounds) * 100, 2, 30, (v) => v.toFixed(1) + '%')
+
+// --- does the score actually mean anything? ---------------------------------
+//
+// A synthetic squad spanning the whole scale, so the claim "7 out of 10 means he
+// turns up seven weeks in ten" is measured rather than asserted. Only the away
+// roll is checked — injuries ignore the score by design, so they're excluded.
+const ladder = Array.from({ length: 27 }, (_, i) => {
+  const score = i < 11 ? 10 : [2, 4, 6, 8][(i - 11) % 4]
+  return {
+    id: `l${i}`, name: `Ladder ${i}`, value: 1,
+    bat: { skill: 60, pwr: 60 }, bowl: { def: 60, att: 60 },
+    wk: i === 0, availability: score,
+  }
+})
+
+const awayByScore = new Map()
+const seenByScore = new Map()
+for (let s = 0; s < 400; s++) {
+  let st = initialAvailability(ladder, s * 104729 + 3)
+  for (let round = 1; round <= 9; round++) {
+    if (round > 1) st = rollRound(st, ladder, round, s * 104729 + 3)
+    const injured = new Set(st.absences.map((a) => a.playerId))
+    const away = new Set(st.away.map((a) => a.playerId))
+    for (const p of ladder) {
+      // Somebody already crocked never gets an away roll, so he can't count.
+      if (injured.has(p.id)) continue
+      seenByScore.set(p.availability, (seenByScore.get(p.availability) ?? 0) + 1)
+      if (away.has(p.id)) awayByScore.set(p.availability, (awayByScore.get(p.availability) ?? 0) + 1)
+    }
+  }
+}
+
+for (const score of [2, 4, 6, 8, 10]) {
+  const rate = (awayByScore.get(score) ?? 0) / (seenByScore.get(score) ?? 1)
+  const want = 1 - score / 10
+  // Generous on the low scores: the legal-XI guard recalls the keenest first,
+  // which drags a 2-out-of-10's observed rate slightly under his nominal one.
+  check(
+    `score ${score}/10 misses ~${Math.round(want * 100)}% of weeks`,
+    rate * 100, Math.max(0, want * 100 - 9), want * 100 + 4, (v) => v.toFixed(1) + '%',
+  )
+}
 console.log(
   `  \x1b[90mboth keepers out in ${((noKeeperRounds / rounds) * 100).toFixed(1)}% of rounds ` +
   `— a stand-in keeps, at a cost\x1b[0m`,

@@ -1,9 +1,11 @@
 import { useState } from 'react'
+import { DEFAULT_AVAILABILITY } from '../data/types'
 import type { Player } from '../data/types'
 import { BAGSHOT_SQUAD } from '../data/squad'
 import { theme } from '../theme'
 import {
-  Eyebrow, GhostButton, Notice, PrimaryButton, ScreenHeader, roleColour, roleOf,
+  availabilityColour, Eyebrow, GhostButton, Notice, PrimaryButton, ScreenHeader,
+  roleColour, roleOf,
 } from '../components/ui'
 
 const FIELDS: [string, (p: Player) => number, (p: Player, v: number) => Player][] = [
@@ -20,7 +22,18 @@ function blankPlayer(n: number): Player {
     value: 1,
     bat: { skill: 60, pwr: 60 },
     bowl: { def: 0, att: 0 },
+    availability: DEFAULT_AVAILABILITY,
   }
+}
+
+/** Plain-English read on an availability score, shown under the input. */
+function availabilityNote(v: number): string {
+  if (v >= 10) return 'Never misses a week.'
+  if (v >= 8) return 'Reliable — the odd weekend away.'
+  if (v >= 6) return 'Around most weeks, but not all.'
+  if (v >= 4) return 'Half a season at best.'
+  if (v >= 2) return 'A ringer. Turns up when it suits.'
+  return 'Barely plays. Do not build a side around him.'
 }
 
 export function Squad({
@@ -57,6 +70,13 @@ export function Squad({
         const p = raw as Partial<Player> & Record<string, unknown>
         const num = (v: unknown, fallback = 0) =>
           typeof v === 'number' && Number.isFinite(v) ? Math.round(Math.max(0, Math.min(100, v))) : fallback
+        const swing = num(p.swing)
+        // Anything outside 0-10 is somebody using a different scale; fall back
+        // rather than let a stray 80 make a player permanently unavailable.
+        const avail =
+          typeof p.availability === 'number' && Number.isFinite(p.availability)
+            ? Math.round(Math.max(0, Math.min(10, p.availability)))
+            : DEFAULT_AVAILABILITY
         return {
           id: typeof p.id === 'string' ? p.id : `import-${i + 1}`,
           name: typeof p.name === 'string' && p.name.trim() ? p.name.trim() : `Player ${i + 1}`,
@@ -66,6 +86,8 @@ export function Squad({
           bowl: { def: num(p.bowl?.def), att: num(p.bowl?.att) },
           wk: p.wk === true,
           bowlType: p.bowlType === 'spin' ? 'spin' : p.bowlType === 'pace' ? 'pace' : undefined,
+          swing: swing > 0 ? swing : undefined,
+          availability: avail,
         }
       })
       onChange(cleaned)
@@ -101,7 +123,9 @@ export function Squad({
 
       <div className="text-[11.5px] leading-relaxed mb-3 px-1" style={{ color: theme.muted }}>
         Every rating runs 0-100 where <span style={{ color: theme.gold }}>60 is league average</span>.
-        Leave DEF and ATT at 0 for someone who doesn't bowl. Changes save automatically.
+        Leave DEF and ATT at 0 for someone who doesn't bowl.{' '}
+        <span style={{ color: theme.gold }}>AVAIL</span> is out of 10 — how many weeks in ten he
+        actually turns up. Changes save automatically.
       </div>
 
       {(keepers === 0 || bowlers < 5) && (
@@ -140,7 +164,10 @@ export function Squad({
                       {role}
                     </span>
                     <span className="disp num text-[10px]" style={{ color: theme.faint }}>
-                      {p.bat.skill}/{p.bat.pwr} · {p.bowl.def}/{p.bowl.att} · £{p.value}m
+                      {p.bat.skill}/{p.bat.pwr} · {p.bowl.def}/{p.bowl.att} · £{p.value}m ·{' '}
+                      <span style={{ color: availabilityColour(p.availability ?? DEFAULT_AVAILABILITY) }}>
+                        {p.availability ?? DEFAULT_AVAILABILITY}/10
+                      </span>
                     </span>
                   </div>
                 </div>
@@ -178,8 +205,8 @@ export function Squad({
                     ))}
                   </div>
 
-                  <div className="mb-2">
-                    <label className="block w-1/3">
+                  <div className="grid grid-cols-3 gap-2 mb-2">
+                    <label className="block">
                       <div className="disp text-[9px] tracking-widest mb-1" style={{ color: theme.faint }}>
                         VALUE £m
                       </div>
@@ -193,6 +220,52 @@ export function Squad({
                         style={{ background: theme.bg, border: `1px solid ${theme.border}`, color: theme.cream }}
                       />
                     </label>
+                    <label className="block">
+                      <div className="disp text-[9px] tracking-widest mb-1" style={{ color: theme.faint }}>
+                        SWING
+                      </div>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={p.swing ?? 0}
+                        onChange={(e) => {
+                          const v = Math.max(0, Math.min(100, Number(e.target.value) || 0))
+                          update(p.id, { ...p, swing: v > 0 ? v : undefined })
+                        }}
+                        className="disp num w-full rounded-lg px-2 py-1.5 text-[14px] font-bold"
+                        style={{ background: theme.bg, border: `1px solid ${theme.border}`, color: theme.cream }}
+                      />
+                    </label>
+                    <label className="block">
+                      <div className="disp text-[9px] tracking-widest mb-1" style={{ color: theme.faint }}>
+                        AVAIL /10
+                      </div>
+                      <input
+                        type="number"
+                        min={0}
+                        max={10}
+                        value={p.availability ?? DEFAULT_AVAILABILITY}
+                        onChange={(e) => {
+                          const v = Math.max(0, Math.min(10, Math.round(Number(e.target.value) || 0)))
+                          update(p.id, { ...p, availability: v })
+                        }}
+                        className="disp num w-full rounded-lg px-2 py-1.5 text-[14px] font-bold"
+                        style={{
+                          background: theme.bg,
+                          border: `1px solid ${theme.border}`,
+                          color: availabilityColour(p.availability ?? DEFAULT_AVAILABILITY),
+                        }}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="text-[10.5px] leading-snug mb-2 px-0.5" style={{ color: theme.muted }}>
+                    <span style={{ color: availabilityColour(p.availability ?? DEFAULT_AVAILABILITY) }}>
+                      Availability {p.availability ?? DEFAULT_AVAILABILITY}/10.
+                    </span>{' '}
+                    {availabilityNote(p.availability ?? DEFAULT_AVAILABILITY)} Injuries are rolled
+                    separately — keenness won't save a hamstring.
                   </div>
 
                   <div className="flex gap-2">
