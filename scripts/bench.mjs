@@ -31,6 +31,7 @@ const {
   BAGSHOT_SQUAD, OPPOSITION, RULES, DIV6_WEST, BAGSHOT_REAL_POSITION,
   simulateMatch, simulateFieldingInnings, simulateBattingInnings, buildMatchResult,
   autoPlan, autoBattingOrder, autoSelectXI, buildRota, validatePlan, makeRng,
+  spellOvers, allocatedOvers,
   createSeason, nextFixture, recordRound, standings, seasonComplete,
   dlsPar, resources, swingBoost, SWING_WINDOW,
   initialAvailability, rollRound, availablePlayers, unavailableMap, availabilityRate,
@@ -114,20 +115,20 @@ for (let i = 0; i < MATCHES; i++) {
 }
 
 console.log('\x1b[1mFirst innings (par club batting, par club bowling)\x1b[0m')
-check('median total', pct(firstTotals, 50), 190, 240, (v) => Math.round(v))
-check('10th percentile', pct(firstTotals, 10), 110, 175, (v) => Math.round(v))
-check('90th percentile', pct(firstTotals, 90), 250, 320, (v) => Math.round(v))
-check('mean run rate', mean(firstRR), 4.2, 5.6, (v) => v.toFixed(2))
+check('median total', pct(firstTotals, 50), 155, 200, (v) => Math.round(v))
+check('10th percentile', pct(firstTotals, 10), 95, 145, (v) => Math.round(v))
+check('90th percentile', pct(firstTotals, 90), 190, 250, (v) => Math.round(v))
+check('mean run rate', mean(firstRR), 3.6, 4.6, (v) => v.toFixed(2))
 check('mean wickets lost', mean(firstWkts), 5.5, 8.5, (v) => v.toFixed(2))
-check('all-out rate %', mean(allOut) * 100, 25, 45, (v) => v.toFixed(1))
+check('all-out rate %', mean(allOut) * 100, 28, 50, (v) => v.toFixed(1))
 check('mean extras', mean(firstExtras), 8, 20, (v) => v.toFixed(1))
 
 console.log('\n\x1b[1mIndividual scores (both innings)\x1b[0m')
 check('ducks per innings', ducks / inningsCount, 0.4, 2.6, (v) => v.toFixed(2))
-check('20+ scores per innings', twenties / inningsCount, 2.5, 4.5, (v) => v.toFixed(2))
-check('fifties per innings', fifties / inningsCount, 0.6, 1.5, (v) => v.toFixed(2))
-check('hundreds per innings', hundreds / inningsCount, 0.05, 0.35, (v) => v.toFixed(3))
-check('mean top score', topScores / inningsCount, 60, 90, (v) => v.toFixed(1))
+check('20+ scores per innings', twenties / inningsCount, 2.0, 4.0, (v) => v.toFixed(2))
+check('fifties per innings', fifties / inningsCount, 0.4, 1.2, (v) => v.toFixed(2))
+check('hundreds per innings', hundreds / inningsCount, 0.01, 0.20, (v) => v.toFixed(3))
+check('mean top score', topScores / inningsCount, 45, 72, (v) => v.toFixed(1))
 
 console.log('\n\x1b[1mMatch outcomes\x1b[0m')
 
@@ -263,17 +264,23 @@ for (let i = 0; i < 500; i++) {
   }
 }
 
-// Split spells must not be able to produce an illegal rota.
+// Awkward spell shapes must not be able to produce an illegal rota.
 let splitViolations = 0
 let splitCap = 0
 for (let i = 0; i < 300; i++) {
   const bowlers = BAGSHOT_XI.filter((p) => p.bowl.def >= 20 && p.bowl.att >= 20 && !p.wk).slice(0, 5)
   if (bowlers.length < RULES.minBowlers) break
-  const combos = [['new-ball'], ['middle'], ['death'], ['new-ball', 'middle'],
-                  ['middle', 'death'], ['new-ball', 'death'], ['new-ball', 'middle', 'death']]
-  const plan = bowlers.map((p, n) => ({
-    playerId: p.id, overs: 9, prefs: combos[(i + n) % combos.length],
-  }))
+  // Deliberately hostile: everyone wants the same overs, split every which way.
+  const shapes = [
+    [{ from: 1, overs: 9 }],
+    [{ from: 1, overs: 5 }, { from: 36, overs: 4 }],
+    [{ from: 2, overs: 4 }, { from: 20, overs: 5 }],
+    [{ from: 10, overs: 9 }],
+    [{ from: 1, overs: 3 }, { from: 15, overs: 3 }, { from: 37, overs: 3 }],
+    [{ from: 28, overs: 9 }],
+    [{ from: 3, overs: 9 }],
+  ]
+  const plan = bowlers.map((p, n) => ({ playerId: p.id, spells: shapes[(i + n) % shapes.length] }))
   let s = i + 1
   const rota = buildRota(plan, () => ((s = (s * 16807) % 2147483647) / 2147483647))
   for (let o = 1; o < rota.length; o++) if (rota[o] === rota[o - 1]) splitViolations++
@@ -283,8 +290,47 @@ for (let i = 0; i < 300; i++) {
   if (rota.length !== RULES.overs) splitCap++
 }
 
+// A spell you asked for should be the spell you get. Measured on plans that
+// validate cleanly — the old phase model leaked 16% of overs out of their
+// window and never said so, which is the whole reason spells exist.
+let spellHonoured = 0, spellTotal = 0
+for (let i = 0; i < 300; i++) {
+  const plan = autoPlan(BAGSHOT_XI)
+  if (validatePlan(plan, BAGSHOT_XI).length > 0) continue
+  const rota = buildRota(plan, makeRng(i * 7919 + 3))
+  for (const a of plan) {
+    const asked = new Set(spellOvers(a))
+    const got = rota.map((id, n) => (id === a.playerId ? n + 1 : 0)).filter(Boolean)
+    for (const over of got) { spellTotal++; if (asked.has(over)) spellHonoured++ }
+  }
+}
+
+// The default plan must always add up. A claim that can't find room used to
+// drop the spell on the floor, which left the innings short and every batting
+// number wrong — caught here rather than by staring at a median.
+let autoShort = 0
+let autoCollides = 0
+for (let i = 0; i < 50; i++) {
+  const xiN = autoSelectXI(BAGSHOT_SQUAD.slice(0, 12 + (i % 15)))
+  const plan = autoPlan(xiN)
+  const total = plan.reduce((s, a) => s + allocatedOvers(a), 0)
+  if (total !== RULES.overs) autoShort++
+  // ...and it must not ask two bowlers for the same over.
+  const seen = new Set()
+  for (const a of plan) for (const o of spellOvers(a)) {
+    if (seen.has(o)) autoCollides++
+    seen.add(o)
+  }
+}
+check('AUTO plan totals 45 overs', autoShort, 0, 0, (v) => v)
+check('AUTO plan never double-books an over', autoCollides, 0, 0, (v) => v)
+
 check('no consecutive overs', rotaViolations, 0, 0, (v) => v)
-check('split spells stay legal', splitViolations + splitCap, 0, 0, (v) => v)
+check('awkward spells stay legal', splitViolations + splitCap, 0, 0, (v) => v)
+check(
+  'spells are honoured exactly',
+  spellTotal === 0 ? 0 : (spellHonoured / spellTotal) * 100, 100, 100, (v) => v.toFixed(1) + '%',
+)
 check('over cap respected', capViolations, 0, 0, (v) => v)
 check('at least 5 bowlers used', tooFewBowlers, 0, 0, (v) => v)
 check('balls reconcile', ballsMismatch, 0, 0, (v) => v)
@@ -497,7 +543,10 @@ console.log(`  \x1b[90m${SEASONS} seasons · real Bagshot finished ${BAGSHOT_REA
 console.log('\n\x1b[1mFresh air and squad churn\x1b[0m')
 check('fresh air games per match', mean(freshAirPerMatch), 0.5, 3, (v) => v.toFixed(2))
 check('form stays in range', formOutOfRange, 0, 0, (v) => v)
-check('form averages near neutral', mean(seasonForms_), 44, 58, (v) => v.toFixed(1))
+// Squad-wide form now sits *below* neutral by design: only eleven play each
+// week and everyone else goes stale, so a 27-man squad averages down. What
+// matters is that it settles rather than collapsing to the rust floor.
+check('squad form settles below neutral', mean(seasonForms_), 34, 48, (v) => v.toFixed(1))
 check('fallouts per season', seasonFallouts / SEASONS, 2, 11, (v) => v.toFixed(1))
 check('never short of a legal XI', seasonUnpickable, 0, 0, (v) => v)
 

@@ -59,17 +59,77 @@ export interface Club {
 
 // ---------------------------------------------------------------- bowling plan
 
-export type SpellPref = 'new-ball' | 'middle' | 'death'
+// ------------------------------------------------------------- chase orders
+
+/**
+ * What you tell the batters before they go out to chase.
+ *
+ * The instruction bites hardest early and fades as the innings goes on — by the
+ * thirties the asking rate is in charge whatever you said, which is exactly how
+ * it works in the middle. It buys you a genuine trade rather than a free
+ * choice: going hard puts you ahead of the rate and costs wickets, seeing it
+ * off keeps ten in hand and leaves a steeper climb.
+ */
+export type ChasePlan = 'see-it-off' | 'as-it-comes' | 'go-hard'
+
+export const CHASE_PLANS: { id: ChasePlan; label: string; blurb: string }[] = [
+  {
+    id: 'see-it-off',
+    label: 'SEE IT OFF',
+    blurb: 'Bat time. Respect the new ball, keep wickets, back yourselves later.',
+  },
+  {
+    id: 'as-it-comes',
+    label: 'AS IT COMES',
+    blurb: 'Play the rate. Push when it climbs, settle when it drops.',
+  },
+  {
+    id: 'go-hard',
+    label: 'GO HARD',
+    blurb: 'Get after them from ball one and put the chase to bed early.',
+  },
+]
+
+/**
+ * A spell: "six overs starting at over one", "bring him back at thirty-two".
+ *
+ * This replaces the old new-ball / middle / death buckets, which were a
+ * fiction — a bowler with nine overs held for "the new ball" physically cannot
+ * bowl them all inside the nine-over powerplay, so roughly a quarter of his
+ * overs leaked elsewhere and the screen never said so.
+ *
+ * Bowlers alternate ends, so a spell runs every *other* over: five overs from
+ * over 1 means overs 1, 3, 5, 7 and 9. That's real cricket, it spans the phase
+ * boundaries naturally, and the rota can honour it exactly.
+ */
+export interface Spell {
+  /** The over he comes on, 1-45. */
+  from: number
+  /** How many overs he bowls in this spell. */
+  overs: number
+}
+
+/** Last over of a spell — every other over from `from`. */
+export const spellEnd = (s: Spell) => s.from + (s.overs - 1) * 2
 
 export interface BowlerAllocation {
   playerId: string
-  overs: number
-  /**
-   * Which phases this bowler is held for. More than one is allowed — a bowler
-   * set to middle *and* death is available across both windows.
-   */
-  prefs: SpellPref[]
+  /** One or more spells. Total overs is the sum across them. */
+  spells: Spell[]
 }
+
+/** Every over this bowler is down to bowl, in order. */
+export function spellOvers(a: BowlerAllocation): number[] {
+  const out: number[] = []
+  for (const s of a.spells) {
+    for (let i = 0; i < s.overs; i++) out.push(s.from + i * 2)
+  }
+  return out.sort((x, y) => x - y)
+}
+
+/** Total overs across all of a bowler's spells. */
+export const allocatedOvers = (a: BowlerAllocation) =>
+  a.spells.reduce((n, s) => n + s.overs, 0)
 
 export type BowlingPlan = BowlerAllocation[]
 

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { BowlingPlan as Plan, Club, InningsResult, MatchResult, Player } from './data/types'
+import type {
+  BowlingPlan as Plan, ChasePlan, Club, InningsResult, MatchResult, Player,
+} from './data/types'
 import { autoBattingOrder, autoSelectXI } from './engine/ai'
 import { buildMatchResult, simulateBattingInnings, simulateFieldingInnings } from './engine/match'
 import { autoPlan } from './engine/rota'
@@ -45,6 +47,7 @@ export default function App() {
   const [xi, setXi] = useState<Player[]>([])
   const [plan, setPlan] = useState<Plan>([])
   const [order, setOrder] = useState<Player[]>([])
+  const [chasePlan, setChasePlan] = useState<ChasePlan>('as-it-comes')
   const [first, setFirst] = useState<InningsResult | null>(null)
   const [second, setSecond] = useState<InningsResult | null>(null)
   const [result, setResult] = useState<MatchResult | null>(null)
@@ -230,7 +233,9 @@ export default function App() {
 
   const startChase = useCallback(() => {
     if (!opponent || !first) return
-    const innings = simulateBattingInnings(opponent, order, first.runs + 1, seed, forms)
+    const innings = simulateBattingInnings(
+      opponent, order, first.runs + 1, seed, forms, chasePlan,
+    )
     setSecond(innings)
     const built = buildMatchResult(seed, opponent, first, innings)
     setResult(built)
@@ -239,7 +244,8 @@ export default function App() {
     // A league fixture updates the table — and plays out the rest of its round.
     if (inLeague && season) persistSeason(recordRound(season, built, squad, xi))
     setScreen(prefs.instant ? 'result' : 'sim2')
-  }, [opponent, first, order, seed, forms, xi, inLeague, season, squad, persistSeason, prefs.instant])
+  }, [opponent, first, order, seed, forms, chasePlan, xi, inLeague, season, squad,
+      persistSeason, prefs.instant])
 
   const toggleInstant = useCallback(() => {
     setPrefs((p) => {
@@ -378,6 +384,8 @@ export default function App() {
                   )
                 : undefined
             }
+            chasePlan={chasePlan}
+            onChasePlan={setChasePlan}
             onChange={setOrder}
             onAuto={() => setOrder(autoBattingOrder(xi))}
             onBack={() => setScreen('break')}

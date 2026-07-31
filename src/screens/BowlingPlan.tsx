@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
-import { RULES } from '../data/types'
-import type { BowlerAllocation, BowlingPlan as Plan, Club, Player, SpellPref } from '../data/types'
+import { allocatedOvers, RULES, spellEnd } from '../data/types'
+import type { BowlingPlan as Plan, Club, Player, Spell } from '../data/types'
 import { buildRota, validatePlan } from '../engine/rota'
 import { availableBowlers } from '../engine/ratings'
 import { makeRng } from '../engine/rng'
@@ -9,15 +9,15 @@ import {
   Eyebrow, GhostButton, Notice, PrimaryButton, ScreenHeader, StatBar, StickyFooter,
 } from '../components/ui'
 
-const PREFS: [SpellPref, string, string][] = [
-  ['new-ball', 'NEW BALL', 'Overs 1-12'],
-  ['middle', 'MIDDLE', 'Overs 10-35'],
-  ['death', 'DEATH', 'Overs 36-45'],
-]
-
 const bowlIndex = (p: Player) => 0.5 * p.bowl.def + 0.5 * p.bowl.att
 /** Below this a legal bowler is really a part-timer, not part of the attack. */
 const FRONTLINE = 60
+
+const PHASES = [
+  { key: 'powerplay', label: 'NEW BALL', from: 1, to: RULES.powerplayUntil },
+  { key: 'middle', label: 'MIDDLE', from: RULES.powerplayUntil + 1, to: RULES.deathFrom - 1 },
+  { key: 'death', label: 'DEATH', from: RULES.deathFrom, to: RULES.overs },
+] as const
 
 export function BowlingPlan({
   xi, opponent, plan, seed, onChange, onAuto, onBack, onNext,
@@ -42,8 +42,9 @@ export function BowlingPlan({
       partTime: all.filter((p) => bowlIndex(p) < FRONTLINE),
     }
   }, [xi])
+
   const byId = useMemo(() => new Map(plan.map((a) => [a.playerId, a])), [plan])
-  const allocated = plan.reduce((s, a) => s + a.overs, 0)
+  const allocated = plan.reduce((s, a) => s + allocatedOvers(a), 0)
   const remaining = RULES.overs - allocated
   const issues = validatePlan(plan, xi)
 
@@ -55,65 +56,80 @@ export function BowlingPlan({
     [plan, seed, issues.length],
   )
 
-  const set = (playerId: string, patch: Partial<BowlerAllocation>) => {
-    const existing = byId.get(playerId)
-    const next: Plan = existing
-      ? plan.map((a) => (a.playerId === playerId ? { ...a, ...patch } : a))
-      : [...plan, { playerId, overs: 0, prefs: ['middle' as SpellPref], ...patch }]
-    onChange(next.filter((a) => a.overs > 0 || a.playerId === playerId))
+  /** Replace one bowler's spells, dropping him entirely when none are left. */
+  const setSpells = (playerId: string, spells: Spell[]) => {
+    const without = plan.filter((a) => a.playerId !== playerId)
+    onChange(spells.length === 0 ? without : [...without, { playerId, spells }])
   }
 
-  const bump = (p: Player, delta: number) => {
-    const current = byId.get(p.id)?.overs ?? 0
-    const next = Math.max(0, Math.min(RULES.maxOversPerBowler, current + delta))
-    if (delta > 0 && remaining <= 0) return
-    if (next === current) return
-    set(p.id, { overs: next })
+  const editSpell = (playerId: string, i: number, patch: Partial<Spell>) => {
+    const current = byId.get(playerId)?.spells ?? []
+    setSpells(playerId, current.map((s, j) => (j === i ? { ...s, ...patch } : s)))
   }
 
-  /** Toggle a phase on or off. A bowler with overs must keep at least one. */
-  const togglePhase = (playerId: string, pref: SpellPref) => {
-    const current = byId.get(playerId)?.prefs ?? []
-    const next = current.includes(pref)
-      ? current.filter((x) => x !== pref)
-      : [...current, pref]
-    set(playerId, { prefs: next })
+  /** Add a spell starting at the first over this bowler isn't already down for. */
+  const addSpell = (p: Player) => {
+    const current = byId.get(p.id)?.spells ?? []
+    const used = allocatedOvers({ playerId: p.id, spells: current })
+    const room = Math.min(remaining, RULES.maxOversPerBowler - used)
+    if (room <= 0) return
+    const after = current.length > 0
+      ? Math.max(...current.map(spellEnd)) + 1
+      : 1
+    const overs = Math.min(room, 3)
+    // Keep it inside the innings even if that means starting earlier.
+    const from = Math.min(Math.max(after, 1), RULES.overs - (overs - 1) * 2)
+    if (from < 1) return
+    setSpells(p.id, [...current, { from, overs }])
   }
 
-  // What each phase of the innings actually looks like under this plan. A
-  // bowler set to two phases splits his overs between them, which is the
-  // honest reading — the rota will spread him across both windows.
-  const phaseProfile = useMemo(() => {
-    const used = plan.filter((a) => a.overs > 0 && a.prefs.length > 0)
-    const build = (pref: SpellPref) => {
-      let def = 0, att = 0, swing = 0, overs = 0
-      for (const a of used) {
-        if (!a.prefs.includes(pref)) continue
-        const p = xi.find((x) => x.id === a.playerId)
-        if (!p) continue
-        const share = a.overs / a.prefs.length
-        def += p.bowl.def * share
-        att += p.bowl.att * share
-        swing += (p.swing ?? 0) * share
-        overs += share
-      }
-      if (overs === 0) return null
-      return {
-        def: Math.round(def / overs),
-        att: Math.round(att / overs),
-        swing: Math.round(swing / overs),
-        overs: Math.round(overs * 10) / 10,
-      }
+  const bumpOvers = (p: Player, i: number, delta: number) => {
+    const current = byId.get(p.id)?.spells ?? []
+    const s = current[i]
+    if (!s) return
+    const used = allocatedOvers({ playerId: p.id, spells: current })
+    const next = s.overs + delta
+    if (next < 1) { setSpells(p.id, current.filter((_, j) => j !== i)); return }
+    if (delta > 0 && (remaining <= 0 || used >= RULES.maxOversPerBowler)) return
+    if (spellEnd({ ...s, overs: next }) > RULES.overs) return
+    editSpell(p.id, i, { overs: next })
+  }
+
+  const bumpFrom = (p: Player, i: number, delta: number) => {
+    const current = byId.get(p.id)?.spells ?? []
+    const s = current[i]
+    if (!s) return
+    const from = s.from + delta
+    if (from < 1) return
+    if (spellEnd({ ...s, from }) > RULES.overs) return
+    editSpell(p.id, i, { from })
+  }
+
+  // What each phase of the innings will actually look like, read straight off
+  // the rota rather than estimated from intentions.
+  const shape = useMemo(() => PHASES.map((ph) => {
+    let def = 0, att = 0, swing = 0, overs = 0, spinOvers = 0
+    for (let over = ph.from; over <= ph.to; over++) {
+      const p = xi.find((x) => x.id === rota[over - 1])
+      if (!p) continue
+      def += p.bowl.def; att += p.bowl.att; swing += p.swing ?? 0
+      if (p.bowlType === 'spin') spinOvers++
+      overs++
     }
-    return PREFS.map(([pref, label]) => ({
-      label, pref, ...(build(pref) ?? { def: 0, att: 0, swing: 0, overs: 0 }),
-    }))
-  }, [plan, xi])
+    if (overs === 0) return { ...ph, def: 0, att: 0, swing: 0, overs: 0, spinOvers: 0 }
+    return {
+      ...ph,
+      def: Math.round(def / overs), att: Math.round(att / overs),
+      swing: Math.round(swing / overs), overs, spinOvers,
+    }
+  }), [rota, xi])
 
   const renderBowler = (p: Player, i: number) => {
     const alloc = byId.get(p.id)
-    const overs = alloc?.overs ?? 0
+    const spells = alloc?.spells ?? []
+    const overs = alloc ? allocatedOvers(alloc) : 0
     const on = overs > 0
+    const spin = p.bowlType === 'spin'
     return (
       <div
         key={p.id}
@@ -128,8 +144,9 @@ export function BowlingPlan({
             <div className="text-[13.5px] font-semibold truncate" style={{ color: on ? theme.gold : theme.cream }}>
               {p.name}
             </div>
-            <div className="disp text-[10px] tracking-wider mt-0.5" style={{ color: theme.faint }}>
-              {(p.bowlType ?? 'pace').toUpperCase()}
+            <div className="disp text-[10px] tracking-wider mt-0.5" style={{ color: spin ? theme.sky : theme.faint }}>
+              {spin ? 'SPIN' : 'PACE'}
+              {on && <span style={{ color: theme.gold }}> · {overs} OV</span>}
             </div>
           </div>
 
@@ -139,58 +156,102 @@ export function BowlingPlan({
             {(p.swing ?? 0) > 0 && <StatBar label="SWG" value={p.swing!} width={40} />}
           </div>
 
-          {/* The most-tapped control in the game — worth a real target. */}
-          <div className="flex items-center shrink-0 ml-1">
-            <button
-              onClick={() => bump(p, -1)}
-              aria-label={`One fewer over for ${p.name}`}
-              className="disp w-11 h-11 rounded-lg text-xl font-bold active:scale-90 transition-transform"
-              style={{ background: theme.surface2, border: `1px solid ${theme.border}`, color: theme.muted }}
-            >
-              −
-            </button>
-            <div
-              className="disp num w-8 text-center text-lg font-bold"
-              style={{ color: on ? theme.gold : theme.faint }}
-            >
-              {overs}
-            </div>
-            <button
-              onClick={() => bump(p, +1)}
-              aria-label={`One more over for ${p.name}`}
-              disabled={remaining <= 0 || overs >= RULES.maxOversPerBowler}
-              className="disp w-11 h-11 rounded-lg text-xl font-bold active:scale-90 transition-transform disabled:opacity-35"
-              style={{ background: theme.surface2, border: `1px solid ${theme.border}`, color: theme.cream }}
-            >
-              +
-            </button>
-          </div>
+          <button
+            onClick={() => addSpell(p)}
+            disabled={remaining <= 0 || overs >= RULES.maxOversPerBowler}
+            aria-label={`Give ${p.name} a spell`}
+            className="disp w-11 h-11 shrink-0 rounded-lg text-xl font-bold
+                       active:scale-90 transition-transform disabled:opacity-30"
+            style={{ background: theme.surface2, border: `1px solid ${theme.border}`, color: theme.cream }}
+          >
+            +
+          </button>
         </div>
 
-        {on && (
-          <div className="slide-in">
-            <div className="flex gap-1.5 mt-2">
-              {PREFS.map(([pref, label]) => (
-                <GhostButton
-                  key={pref}
-                  active={alloc?.prefs.includes(pref) ?? false}
-                  onClick={() => togglePhase(p.id, pref)}
-                  className="flex-1 !px-1 !py-2.5 !text-[10px] text-center"
+        {spells.map((s, si) => {
+          const last = spellEnd(s)
+          const newBall = s.from <= RULES.powerplayUntil
+          const death = last >= RULES.deathFrom
+          return (
+            <div
+              key={si}
+              className="slide-in mt-2 rounded-lg px-2.5 py-2"
+              style={{ background: theme.bg, border: `1px solid ${theme.border}` }}
+            >
+              <div className="flex items-center gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="disp text-[9px] tracking-widest" style={{ color: theme.faint }}>
+                    SPELL {si + 1}
+                  </div>
+                  <div className="disp num text-[12px] font-bold mt-0.5">
+                    OVERS <span style={{ color: theme.gold }}>{s.from}–{last}</span>
+                    <span className="font-normal ml-1.5" style={{ color: theme.faint }}>
+                      {newBall ? 'new ball' : death ? 'at the death' : 'middle'}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSpells(p.id, spells.filter((_, j) => j !== si))}
+                  aria-label={`Remove ${p.name}'s spell ${si + 1}`}
+                  className="disp w-9 h-9 shrink-0 rounded-lg text-[13px] active:scale-90 transition-transform"
+                  style={{ color: theme.red }}
                 >
-                  {label}
-                </GhostButton>
-              ))}
+                  ✕
+                </button>
+              </div>
+
+              <div className="flex gap-2 mt-1.5">
+                {([
+                  ['COMES ON', s.from, (d: number) => bumpFrom(p, si, d), `${p.name} on earlier`, `${p.name} on later`],
+                  ['OVERS', s.overs, (d: number) => bumpOvers(p, si, d), `One fewer over for ${p.name}`, `One more over for ${p.name}`],
+                ] as const).map(([label, value, bump, lessLabel, moreLabel]) => (
+                  <div key={label} className="flex-1">
+                    <div className="disp text-[8.5px] tracking-widest mb-1" style={{ color: theme.faint }}>
+                      {label}
+                    </div>
+                    <div className="flex items-center">
+                      <button
+                        onClick={() => bump(-1)}
+                        aria-label={lessLabel}
+                        className="disp w-11 h-11 rounded-lg text-xl font-bold active:scale-90 transition-transform"
+                        style={{ background: theme.surface2, border: `1px solid ${theme.border}`, color: theme.muted }}
+                      >
+                        −
+                      </button>
+                      <div className="disp num flex-1 text-center text-lg font-bold" style={{ color: theme.gold }}>
+                        {value}
+                      </div>
+                      <button
+                        onClick={() => bump(+1)}
+                        aria-label={moreLabel}
+                        className="disp w-11 h-11 rounded-lg text-xl font-bold active:scale-90 transition-transform"
+                        style={{ background: theme.surface2, border: `1px solid ${theme.border}`, color: theme.cream }}
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-            {(alloc?.prefs.length ?? 0) === 0 && (
-              <div className="text-[10px] mt-1.5 px-1" style={{ color: theme.red }}>
-                Pick at least one spell for {p.name}.
-              </div>
-            )}
-            {(p.swing ?? 0) >= 50 && !alloc?.prefs.includes('new-ball') && (
-              <div className="text-[10px] mt-1.5 px-1" style={{ color: theme.pitch }}>
-                {p.name} swings it — that's worth most with the new ball.
-              </div>
-            )}
+          )
+        })}
+
+        {on && (p.swing ?? 0) >= 50 && !spells.some((s) => s.from <= RULES.powerplayUntil) && (
+          <div className="text-[10px] mt-1.5 px-1" style={{ color: theme.pitch }}>
+            {p.name} swings it — that's worth most with the new ball, and it's gone by over 13.
+          </div>
+        )}
+        {on && spin && spells.some((s) => spellEnd(s) >= RULES.deathFrom) && (
+          <div className="text-[10px] mt-1.5 px-1" style={{ color: theme.pitch }}>
+            A spinner at the death goes for about a run an over more. He's worth far
+            more squeezing the middle.
+          </div>
+        )}
+        {on && !spin && spells.every((s) => s.from > RULES.powerplayUntil && spellEnd(s) < RULES.deathFrom) && (
+          <div className="text-[10px] mt-1.5 px-1" style={{ color: theme.faint }}>
+            Seamers leak through the middle once the shine's gone — he's better
+            with the new ball or at the end.
           </div>
         )}
       </div>
@@ -219,14 +280,20 @@ export function BowlingPlan({
       />
 
       <div className="flex gap-2 mb-3">
-        <GhostButton onClick={onAuto} className="!px-4">AUTO</GhostButton>
-        <GhostButton onClick={() => onChange([])} className="!px-4">CLEAR</GhostButton>
+        <GhostButton onClick={onAuto} className="!px-4 !py-2.5">AUTO</GhostButton>
+        <GhostButton onClick={() => onChange([])} className="!px-4 !py-2.5">CLEAR</GhostButton>
         <div className="flex-1 text-[11px] leading-snug self-center px-1" style={{ color: theme.muted }}>
           Max {RULES.maxOversPerBowler} each · {RULES.minBowlers}-{RULES.maxBowlers} bowlers
         </div>
       </div>
 
-      <Eyebrow>WHO BOWLS, AND HOW MUCH</Eyebrow>
+      <div className="text-[11px] leading-relaxed mb-3 px-1" style={{ color: theme.muted }}>
+        Give a bowler a <span style={{ color: theme.gold }}>spell</span>: when he comes on
+        and how long for. Ends change every over, so a five-over spell from over 1
+        means overs 1, 3, 5, 7 and 9. Bring him back later with a second spell.
+      </div>
+
+      <Eyebrow>WHO BOWLS, AND WHEN</Eyebrow>
       <div className="rounded-xl overflow-hidden mb-4" style={{ border: `1px solid ${theme.border}` }}>
         {frontline.length === 0 && (
           <div className="px-3 py-3 text-[12px] text-center" style={{ color: theme.faint }}>
@@ -245,53 +312,48 @@ export function BowlingPlan({
         {partTime.map((p, i) => renderBowler(p, i))}
       </div>
 
-      <Eyebrow>YOUR INNINGS SHAPE</Eyebrow>
-      <div className="grid grid-cols-3 gap-2 mb-4">
-        {phaseProfile.map((ph) => (
-          <div
-            key={ph.pref}
-            className="rounded-lg px-2.5 py-2"
-            style={{
-              background: theme.surface,
-              border: `1px solid ${ph.overs === 0 ? `${theme.red}55` : theme.border}`,
-            }}
-          >
-            <div className="disp text-[9px] tracking-widest" style={{ color: theme.faint }}>{ph.label}</div>
-            {ph.overs === 0 ? (
-              <div className="disp text-[12px] font-bold mt-1" style={{ color: theme.red }}>NOBODY</div>
-            ) : (
-              <>
-                <div className="disp num text-[15px] font-bold mt-0.5">
-                  {ph.overs}<span className="text-[10px] font-normal" style={{ color: theme.faint }}> ov</span>
-                </div>
-                <div className="flex gap-1.5 mt-1">
-                  <StatBar label="DEF" value={ph.def} width={36} />
-                  <StatBar label="ATT" value={ph.att} width={36} />
-                </div>
-                {ph.pref === 'new-ball' && (
-                  <div className="mt-1">
-                    <StatBar label="SWING" value={ph.swing} width={80} />
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        ))}
-      </div>
-
-      <div className="text-[11px] leading-relaxed mb-3 px-1" style={{ color: theme.muted }}>
-        Wickets come from <span style={{ color: theme.gold }}>ATT</span> and runs are saved by{' '}
-        <span style={{ color: theme.gold }}>DEF</span>, so squeeze the middle with your miser and
-        strike at the death. <span style={{ color: theme.gold }}>SWING</span> only counts for the
-        first dozen overs — a swing bowler held back has wasted his best asset. Pick more than one
-        spell to keep a bowler available across both windows.
-      </div>
-
       {rota.length > 0 && (
-        <div className="mb-4">
+        <>
+          <Eyebrow>YOUR INNINGS SHAPE</Eyebrow>
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            {shape.map((ph) => (
+              <div
+                key={ph.key}
+                className="rounded-lg px-2.5 py-2"
+                style={{
+                  background: theme.surface,
+                  border: `1px solid ${ph.overs === 0 ? `${theme.red}55` : theme.border}`,
+                }}
+              >
+                <div className="disp text-[9px] tracking-widest" style={{ color: theme.faint }}>{ph.label}</div>
+                {ph.overs === 0 ? (
+                  <div className="disp text-[12px] font-bold mt-1" style={{ color: theme.red }}>NOBODY</div>
+                ) : (
+                  <>
+                    <div className="disp num text-[15px] font-bold mt-0.5">
+                      {ph.overs}<span className="text-[10px] font-normal" style={{ color: theme.faint }}> ov</span>
+                      {ph.spinOvers > 0 && (
+                        <span className="text-[10px] font-normal ml-1" style={{ color: theme.sky }}>
+                          {ph.spinOvers} spin
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex gap-1.5 mt-1">
+                      <StatBar label="DEF" value={ph.def} width={36} />
+                      <StatBar label="ATT" value={ph.att} width={36} />
+                    </div>
+                    {ph.key === 'powerplay' && (
+                      <div className="mt-1"><StatBar label="SWING" value={ph.swing} width={80} /></div>
+                    )}
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+
           <Eyebrow>HOW IT WILL BOWL</Eyebrow>
           <div
-            className="rounded-xl px-2.5 py-2 flex flex-wrap gap-x-1.5 gap-y-1"
+            className="rounded-xl px-2.5 py-2 flex flex-wrap gap-x-1.5 gap-y-1 mb-1.5"
             style={{ background: theme.surface, border: `1px solid ${theme.border}` }}
           >
             {rota.map((id, i) => {
@@ -306,7 +368,7 @@ export function BowlingPlan({
                   title={`Over ${over} — ${p?.name ?? id}`}
                   style={{
                     background: newBall ? 'rgba(90,169,230,.13)' : death ? 'rgba(224,74,64,.13)' : 'transparent',
-                    color: theme.muted,
+                    color: p?.bowlType === 'spin' ? theme.sky : theme.muted,
                   }}
                 >
                   <span className="num" style={{ color: theme.faint }}>{over}</span>{' '}
@@ -315,12 +377,20 @@ export function BowlingPlan({
               )
             })}
           </div>
-          <div className="text-[10.5px] leading-snug mt-1.5 px-1" style={{ color: theme.faint }}>
-            Blue is the powerplay, red the death. This is the order they'll actually
-            come on — check your swing bowlers are in the blue.
+          <div className="text-[10.5px] leading-snug mb-4 px-1" style={{ color: theme.faint }}>
+            Blue background is the powerplay, red the death; blue names are spinners.
+            This is exactly who bowls each over — if a spell couldn't fit where you
+            asked, you'll see where he actually ended up.
           </div>
-        </div>
+        </>
       )}
+
+      <div className="text-[11px] leading-relaxed mb-3 px-1" style={{ color: theme.muted }}>
+        Wickets come from <span style={{ color: theme.gold }}>ATT</span> and runs are saved by{' '}
+        <span style={{ color: theme.gold }}>DEF</span>. Seamers own the new ball and the
+        death; spinners squeeze the middle and get carted at either end.{' '}
+        <span style={{ color: theme.gold }}>SWING</span> only counts for the first dozen overs.
+      </div>
 
       <StickyFooter>
         {issues.length > 0 && (

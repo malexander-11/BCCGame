@@ -65,13 +65,19 @@ const DIVISION: Seed[] = [
  * the real table made the title a 1-in-50 shot — accurate, but not a game. The
  * real 7th is the benchmark to beat instead.
  *
- * It has moved twice to hold that difficulty as the game gained mechanics.
- * Availability pushed it down to +13 — losing eight or nine players a week is
- * worth well over a league place. Form and the removal of the out-of-position
- * penalty pushed it back to +16: a strong side in form compounds, because good
- * returns raise form and form raises returns.
+ * It has moved several times to hold that difficulty as the game gained
+ * mechanics. Availability pushed it down to +13 — losing eight or nine players
+ * a week is worth well over a league place. Form and the removal of the
+ * out-of-position penalty pushed it back to +16: a strong side in form
+ * compounds, because good returns raise form and form raises returns.
+ *
+ * Retuning the engine to a Division 6 West par — median 178 rather than 217 —
+ * brought it back to +13. In a lower-scoring game every run is worth more, so
+ * the same ratings edge counts for a whole league place more than it used to.
+ * At +13 a well-managed side averages 4.8th and wins the title one year in
+ * eight, which is where it was pitched before.
  */
-const DIVISION_BASELINE = 16
+const DIVISION_BASELINE = 13
 
 // ------------------------------------------------------------------ XI shape
 //

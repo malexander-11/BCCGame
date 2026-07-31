@@ -18,8 +18,21 @@ export const NEUTRAL_FORM = 50
 
 /** How much one game moves a player. Low enough that a single innings nudges. */
 const WEIGHT = 0.35
-/** Idle players drift back toward neutral rather than freezing mid-slump. */
-const DRIFT = 0.08
+/**
+ * What a week off costs you.
+ *
+ * Form used to drift back toward neutral when you didn't play, which meant
+ * dropping your out-of-nick batter was the cheapest way to fix him — the exact
+ * opposite of how it works. Missing cricket makes you rusty, so idle players
+ * lose ground instead, down to a floor they can't fall past.
+ *
+ * The consequence is the interesting bit: **the only way back into form is to
+ * play**. Carrying a struggling batter until he comes good is now a real
+ * decision with a real cost, rather than something the bench does for free.
+ */
+const RUST = 3.5
+/** Long-term absentees settle here — "out of nick", not unplayable. */
+const RUST_FLOOR = 30
 
 export interface FormBand {
   label: string
@@ -89,16 +102,24 @@ export function updateForm(
   } else if (bowl !== null) {
     score = bowl
   } else {
-    // Didn't do enough to judge — drift home.
-    return clamp(current + (NEUTRAL_FORM - current) * DRIFT, 0, 100)
+    // Picked, but never got a bat or a meaningful bowl. No evidence either
+    // way, so he goes stale like anyone else who didn't play.
+    return driftForm(current)
   }
 
   return clamp(current * (1 - WEIGHT) + score * WEIGHT, 0, 100)
 }
 
-/** Everyone who didn't play at all this round drifts toward neutral. */
+/**
+ * A week without cricket. Everyone who didn't play goes a little stale.
+ *
+ * Nobody falls past RUST_FLOOR, and anyone already there stays put — you can't
+ * get rustier than rusty, and a five-week injury shouldn't end a career. But
+ * nor does sitting out ever *improve* anybody.
+ */
 export function driftForm(current: number): number {
-  return clamp(current + (NEUTRAL_FORM - current) * DRIFT, 0, 100)
+  if (current <= RUST_FLOOR) return current
+  return clamp(Math.max(RUST_FLOOR, current - RUST), 0, 100)
 }
 
 /**

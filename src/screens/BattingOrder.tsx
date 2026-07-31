@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { RULES } from '../data/types'
-import type { Player } from '../data/types'
+import { CHASE_PLANS, RULES } from '../data/types'
+import type { ChasePlan, Player } from '../data/types'
 import { theme } from '../theme'
 import {
   Eyebrow, GhostButton, PrimaryButton, ScreenHeader, StatBar, StickyFooter,
@@ -15,12 +15,14 @@ import {
  * the match where you know that.
  */
 export function BattingOrder({
-  order, target, didNotBowl, onChange, onAuto, onBack, onNext,
+  order, target, didNotBowl, chasePlan, onChasePlan, onChange, onAuto, onBack, onNext,
 }: {
   order: Player[]
   target: number
   /** Ids of the XI who didn't get a bowl — fresh air candidates. */
   didNotBowl?: Set<string>
+  chasePlan: ChasePlan
+  onChasePlan: (plan: ChasePlan) => void
   onChange: (order: Player[]) => void
   onAuto: () => void
   onBack: () => void
@@ -80,6 +82,27 @@ export function BattingOrder({
             ? 'As you picked it. Tap two names to swap them.'
             : `Swapping ${order[held].name} — tap where he should bat.`}
         </div>
+      </div>
+
+      <Eyebrow colour={theme.gold}>WHAT DO YOU TELL THEM?</Eyebrow>
+      <div className="flex gap-1.5 mb-2">
+        {CHASE_PLANS.map((c) => (
+          <GhostButton
+            key={c.id}
+            active={chasePlan === c.id}
+            onClick={() => onChasePlan(c.id)}
+            className="flex-1 !px-1 !py-2.5 !text-[10px] text-center"
+          >
+            {c.label}
+          </GhostButton>
+        ))}
+      </div>
+      <div className="text-[11px] leading-snug mb-4 px-1" style={{ color: theme.muted }}>
+        {CHASE_PLANS.find((c) => c.id === chasePlan)?.blurb}{' '}
+        <span style={{ color: theme.faint }}>
+          It shapes the first twenty-odd overs; after that the asking rate takes
+          over whatever you said.
+        </span>
       </div>
 
       <Eyebrow>THE ORDER</Eyebrow>

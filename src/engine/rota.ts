@@ -1,54 +1,31 @@
-import { RULES } from '../data/types'
-import type { BowlingPlan, Player, Rota, SpellPref } from '../data/types'
-import { availableBowlers, clamp, isBowler, keeperOf } from './ratings'
+import { allocatedOvers, RULES, spellEnd, spellOvers } from '../data/types'
+import type { BowlingPlan, Player, Rota, Spell } from '../data/types'
+import { availableBowlers, isBowler, keeperOf } from './ratings'
 import type { Rng } from './rng'
 
 /**
- * Turns "Danny Quick bowls 9, prefers the new ball" into an actual over-by-over
- * rota, honouring the one rule that makes bowling plans interesting: nobody
- * bowls two overs in a row.
+ * Turns "Archie bowls six from over one, then three from thirty-four" into an
+ * actual over-by-over rota.
+ *
+ * The old model scored each bowler's *fit* for every over against a phase
+ * preference, which meant preferences were only ever suggestions — a bowler
+ * held for the new ball still bowled a quarter of his overs in the middle
+ * because there wasn't room for them anywhere else, and nothing said so.
+ *
+ * Spells are placed literally instead. You said over 34, he comes on at over
+ * 34. The only thing that can move him is another bowler already standing in
+ * that slot, and the plan screen shows you the result before you commit.
  */
-
-/** How well a single phase fits a given over (0-1). */
-function fitOne(pref: SpellPref, over: number): number {
-  const { overs, powerplayUntil, deathFrom } = RULES
-  switch (pref) {
-    case 'new-ball':
-      // Strongest at over 1, gone by the end of the powerplay + a couple.
-      return clamp(1 - (over - 1) / (powerplayUntil + 3), 0.02, 1)
-    case 'death':
-      // Ramps in over the last third, peaks at the final over.
-      return clamp((over - (deathFrom - 9)) / (overs - (deathFrom - 9)), 0.02, 1)
-    case 'middle': {
-      // Bell centred between the powerplay and the death.
-      const centre = (powerplayUntil + deathFrom) / 2
-      const width = (deathFrom - powerplayUntil) / 2 + 3
-      return clamp(1 - Math.abs(over - centre) / width, 0.02, 1)
-    }
-  }
-}
-
-/**
- * A bowler held for several phases is available across all of them, so his fit
- * for any given over is his best fit — not an average, which would leave a
- * mid-and-death bowler looking mediocre in both windows.
- */
-export function prefFit(prefs: SpellPref[], over: number): number {
-  if (prefs.length === 0) return 0.02
-  let best = 0
-  for (const p of prefs) best = Math.max(best, fitOne(p, over))
-  return best
-}
 
 export interface PlanProblem {
-  code: 'total' | 'per-bowler' | 'too-few' | 'too-many' | 'not-a-bowler' | 'no-phase'
+  code: 'total' | 'per-bowler' | 'too-few' | 'too-many' | 'not-a-bowler' | 'no-spell' | 'overlap'
   message: string
 }
 
 export function validatePlan(plan: BowlingPlan, xi: Player[]): PlanProblem[] {
   const problems: PlanProblem[] = []
-  const used = plan.filter((a) => a.overs > 0)
-  const total = used.reduce((s, a) => s + a.overs, 0)
+  const used = plan.filter((a) => allocatedOvers(a) > 0)
+  const total = used.reduce((s, a) => s + allocatedOvers(a), 0)
 
   if (total !== RULES.overs) {
     problems.push({
@@ -68,6 +45,7 @@ export function validatePlan(plan: BowlingPlan, xi: Player[]): PlanProblem[] {
       message: `No more than ${RULES.maxBowlers} bowlers — you have ${used.length}.`,
     })
   }
+
   const keeper = keeperOf(xi)
   for (const a of used) {
     const p = xi.find((x) => x.id === a.playerId)
@@ -75,10 +53,11 @@ export function validatePlan(plan: BowlingPlan, xi: Player[]): PlanProblem[] {
       problems.push({ code: 'not-a-bowler', message: `${a.playerId} is not in the XI.` })
       continue
     }
-    if (a.overs > RULES.maxOversPerBowler) {
+    const overs = allocatedOvers(a)
+    if (overs > RULES.maxOversPerBowler) {
       problems.push({
         code: 'per-bowler',
-        message: `${p.name} has ${a.overs} overs — the cap is ${RULES.maxOversPerBowler}.`,
+        message: `${p.name} has ${overs} overs — the cap is ${RULES.maxOversPerBowler}.`,
       })
     }
     if (!isBowler(p)) {
@@ -86,11 +65,115 @@ export function validatePlan(plan: BowlingPlan, xi: Player[]): PlanProblem[] {
     } else if (p.id === keeper?.id) {
       problems.push({ code: 'not-a-bowler', message: `${p.name} is keeping wicket.` })
     }
-    if (a.prefs.length === 0) {
-      problems.push({ code: 'no-phase', message: `${p.name} has no spell — pick when he bowls.` })
+    if (a.spells.length === 0) {
+      problems.push({ code: 'no-spell', message: `${p.name} has no spell — say when he bowls.` })
+    }
+    // A spell that would run past the innings can't be bowled as written.
+    for (const s of a.spells) {
+      if (spellEnd(s) > RULES.overs) {
+        problems.push({
+          code: 'overlap',
+          message: `${p.name}'s spell from over ${s.from} runs past over ${RULES.overs}.`,
+        })
+      }
+    }
+    // Check the actual overs, not the spans. Two spells can sit inside each
+    // other's span quite happily (overs 1,3,5 and 2,4,6 never collide) — what
+    // matters is whether this bowler ends up down for the same over twice, or
+    // for two in a row, which he can't bowl.
+    const list = spellOvers(a)
+    for (let i = 1; i < list.length; i++) {
+      if (list[i] === list[i - 1]) {
+        problems.push({
+          code: 'overlap',
+          message: `${p.name} is down to bowl over ${list[i]} twice.`,
+        })
+        break
+      }
+      if (list[i] === list[i - 1] + 1) {
+        problems.push({
+          code: 'overlap',
+          message: `${p.name} would bowl overs ${list[i - 1]} and ${list[i]} back to back — he can't bowl consecutive overs.`,
+        })
+        break
+      }
     }
   }
   return problems
+}
+
+/**
+ * Lay the spells onto the over-by-over rota.
+ *
+ * Each spell claims every other over from its start. Where two bowlers want the
+ * same over the earlier-starting spell keeps it and the other slides on to the
+ * next free one, so a plan can never be silently dropped. Anything still owed
+ * at the end is filled into whatever's left, respecting the one rule that
+ * always holds: nobody bowls two overs in a row.
+ */
+export function buildRota(plan: BowlingPlan, rng: Rng): Rota {
+  /** What you asked for. An over two bowlers both want goes to the earlier spell. */
+  const wanted = new Map<number, string>()
+  const remaining = new Map<string, number>()
+
+  const spells: { id: string; spell: Spell }[] = []
+  for (const a of plan) {
+    const total = allocatedOvers(a)
+    if (total <= 0) continue
+    remaining.set(a.playerId, total)
+    for (const s of a.spells) if (s.overs > 0) spells.push({ id: a.playerId, spell: s })
+  }
+  spells.sort((x, y) => x.spell.from - y.spell.from)
+  for (const { id, spell } of spells) {
+    for (let i = 0; i < spell.overs; i++) {
+      const over = spell.from + i * 2
+      if (over >= 1 && over <= RULES.overs && !wanted.has(over)) wanted.set(over, id)
+    }
+  }
+
+  const totalOvers = [...remaining.values()].reduce((s, n) => s + n, 0)
+  const rota: Rota = []
+  let previous: string | null = null
+
+  for (let over = 1; over <= totalOvers; over++) {
+    const slotsAfter = totalOvers - over
+    const eligible: string[] = []
+    let fallback: string | null = null
+
+    for (const [id, left] of remaining) {
+      if (left <= 0) continue
+      if (id === previous) continue
+      if (fallback === null) fallback = id
+      // Would taking this over strand somebody else? The guard below is what
+      // makes the rota legal by construction rather than by luck.
+      remaining.set(id, left - 1)
+      const ok = feasible(remaining, slotsAfter, id)
+      remaining.set(id, left)
+      if (ok) eligible.push(id)
+    }
+
+    // Give the over to whoever you asked for, if he can legally have it.
+    const asked = wanted.get(over)
+    let best = asked !== undefined && eligible.includes(asked) ? asked : null
+
+    if (best === null && eligible.length > 0) {
+      // Nobody you asked for — take whoever is furthest behind, so a bowler
+      // whose spell got squeezed still gets his overs in.
+      best = eligible.reduce((a, b) => {
+        const la = remaining.get(a)!, lb = remaining.get(b)!
+        if (la !== lb) return la > lb ? a : b
+        return rng() < 0.5 ? a : b
+      })
+    }
+    if (best === null) best = fallback
+    if (best === null) break
+
+    rota.push(best)
+    remaining.set(best, remaining.get(best)! - 1)
+    previous = best
+  }
+
+  return rota
 }
 
 /**
@@ -114,72 +197,11 @@ function feasible(remaining: Map<string, number>, slots: number, prev: string | 
 }
 
 /**
- * Fill the rota over by over, picking the best-fitting bowler whose selection
- * still leaves a legal schedule for everyone else. Preference decides who
- * bowls when; the feasibility guard stops a spell preference from painting the
- * last few overs into a corner.
- */
-export function buildRota(plan: BowlingPlan, rng: Rng): Rota {
-  const remaining = new Map<string, number>()
-  const prefs = new Map<string, SpellPref[]>()
-  for (const a of plan) {
-    if (a.overs <= 0) continue
-    remaining.set(a.playerId, a.overs)
-    prefs.set(a.playerId, a.prefs)
-  }
-
-  const totalOvers = [...remaining.values()].reduce((s, n) => s + n, 0)
-  const rota: Rota = []
-  let previous: string | null = null
-
-  for (let over = 1; over <= totalOvers; over++) {
-    const slotsAfter = totalOvers - over
-    let best: string | null = null
-    let bestScore = -Infinity
-    let fallback: string | null = null
-
-    for (const [id, left] of remaining) {
-      if (left <= 0) continue
-      if (id === previous) continue
-      if (fallback === null) fallback = id
-
-      remaining.set(id, left - 1)
-      const ok = feasible(remaining, slotsAfter, id)
-      remaining.set(id, left)
-      if (!ok) continue
-
-      // Spell preference dominates; the remaining-overs term is only there to
-      // stop a bowler being left with more overs than there are slots. The
-      // feasibility guard above already guarantees legality, so leaning hard on
-      // preference is safe — and it's what makes choosing spells matter.
-      const score =
-        prefFit(prefs.get(id)!, over) * 0.80 +
-        (left / Math.max(slotsAfter + 1, 1)) * 0.20 +
-        rng() * 0.04
-      if (score > bestScore) {
-        bestScore = score
-        best = id
-      }
-    }
-
-    // Nothing keeps the schedule perfectly legal — take any eligible bowler
-    // rather than leaving the rota short. Unreachable for a plan that passes
-    // validatePlan, but a rota must always be complete.
-    if (best === null) best = fallback
-    if (best === null) break
-
-    rota.push(best)
-    remaining.set(best, remaining.get(best)! - 1)
-    previous = best
-  }
-
-  return rota
-}
-
-/**
- * A sensible default plan: best bowlers get the most overs, quicks take the new
- * ball, spinners squeeze the middle, and the highest-ATT bowler is held back
- * for the death.
+ * A sensible default plan.
+ *
+ * Swing bowlers open — that edge is gone by the thirteenth over, so holding one
+ * back wastes him. Spinners take the middle, where they're worth most and where
+ * a seamer leaks. Whoever takes wickets is kept back for the death.
  */
 export function autoPlan(xi: Player[]): BowlingPlan {
   const bowlers = availableBowlers(xi)
@@ -206,35 +228,66 @@ export function autoPlan(xi: Player[]): BowlingPlan {
     if (!placed) break
   }
 
-  // Anyone who swings it opens — that edge is gone by the thirteenth over, so
-  // holding a swing bowler back wastes him.
-  const swingers = new Set(
-    alloc.filter((a) => (a.player.swing ?? 0) >= 50)
-      .sort((x, y) => (y.player.swing ?? 0) - (x.player.swing ?? 0))
-      .slice(0, 2)
-      .map((a) => a.player.id),
-  )
-  // Death overs go to whoever takes wickets, skipping the new-ball pair.
-  const deathIds = new Set(
-    [...alloc]
-      .filter((a) => !swingers.has(a.player.id))
-      .sort((x, y) => y.player.bowl.att - x.player.bowl.att)
-      .slice(0, 2)
-      .map((a) => a.player.id),
-  )
+  /** How much this bowler wants a given over. */
+  const suits = (p: Player, over: number): number => {
+    const swings = (p.swing ?? 0) >= 50
+    const spin = p.bowlType === 'spin'
+    if (over <= RULES.powerplayUntil) return swings ? 1.0 : spin ? 0.10 : 0.62
+    if (over >= RULES.deathFrom) return spin ? 0.15 : 0.45 + (p.bowl.att / 100) * 0.5
+    return spin ? 1.0 : 0.5
+  }
 
-  return alloc.map((a) => {
-    const prefs: SpellPref[] = []
-    if (swingers.has(a.player.id)) prefs.push('new-ball')
-    if (deathIds.has(a.player.id)) prefs.push('death')
-    if (prefs.length === 0) {
-      prefs.push(a.player.bowlType === 'spin' ? 'middle' : 'new-ball')
+  // Deal the overs out first, then read the spells back off the result.
+  //
+  // Going the other way — picking spells and hoping they tile — fragments: five
+  // bowlers taking every other over cannot cover forty-five without someone
+  // being left overs he has nowhere legal to bowl. Dealing first makes a legal,
+  // complete, collision-free assignment by construction, and the spells are
+  // simply a description of it.
+  const remaining = new Map(alloc.filter((a) => a.overs > 0).map((a) => [a.player.id, a.overs]))
+  const byId = new Map(alloc.map((a) => [a.player.id, a.player]))
+  const assignment: string[] = []
+  let previous: string | null = null
+
+  for (let over = 1; over <= RULES.overs; over++) {
+    const slotsAfter = RULES.overs - over
+    let best: string | null = null
+    let bestScore = -Infinity
+    for (const [id, leftOvers] of remaining) {
+      if (leftOvers <= 0 || id === previous) continue
+      remaining.set(id, leftOvers - 1)
+      const ok = feasible(remaining, slotsAfter, id)
+      remaining.set(id, leftOvers)
+      if (!ok) continue
+      // Suitability decides, with a nudge toward whoever is furthest behind so
+      // nobody is left with a pile of overs and nowhere to bowl them.
+      const score = suits(byId.get(id)!, over) + (leftOvers / RULES.maxOversPerBowler) * 0.25
+      if (score > bestScore) { bestScore = score; best = id }
     }
-    // A frontline bowler with a full allocation can't spend it all in one
-    // window, so give him the middle overs as well.
-    if (a.overs >= RULES.maxOversPerBowler - 1 && !prefs.includes('middle')) {
-      prefs.push('middle')
+    if (best === null) break
+    assignment.push(best)
+    remaining.set(best, remaining.get(best)! - 1)
+    previous = best
+  }
+
+  // Group each bowler's overs into runs of every-other-over — his spells.
+  const out: BowlingPlan = []
+  for (const a of alloc) {
+    const overs = assignment
+      .map((id, i) => (id === a.player.id ? i + 1 : 0))
+      .filter((n) => n > 0)
+    if (overs.length === 0) continue
+    const spells: Spell[] = []
+    let start = overs[0]
+    let count = 1
+    for (let i = 1; i < overs.length; i++) {
+      if (overs[i] === overs[i - 1] + 2) { count++; continue }
+      spells.push({ from: start, overs: count })
+      start = overs[i]
+      count = 1
     }
-    return { playerId: a.player.id, overs: a.overs, prefs }
-  })
+    spells.push({ from: start, overs: count })
+    out.push({ playerId: a.player.id, spells })
+  }
+  return out
 }

@@ -1,6 +1,6 @@
 import { RULES } from '../data/types'
 import type {
-  BallEvent, BatterCard, BowlerCard, Dismissal, DismissalKind,
+  BallEvent, BatterCard, BowlerCard, ChasePlan, Dismissal, DismissalKind,
   Extras, FowEntry, InningsResult, OverSummary, Player, Rota,
 } from '../data/types'
 import {
@@ -31,6 +31,8 @@ export interface InningsInput {
   rota: Rota
   /** Runs required to win. Null in the first innings. */
   target: number | null
+  /** What the batters were told before they went out. Ignored when setting. */
+  chasePlan?: ChasePlan
   /**
    * Tracked season form by player id, for either side. Absent in a friendly,
    * where the streaky per-innings roll is used instead.
@@ -42,15 +44,22 @@ export interface InningsInput {
 // ---------------------------------------------------------------- base rates
 //
 // Per legal ball, for an average batter (60) against an average bowler (60).
-// Tuned so a 45-over innings lands around 210-230 — see scripts/bench.mjs.
+//
+// Tuned to **Division 6 West**, where par is 160-200 rather than the 210-230
+// these used to produce. That earlier target was what good limited-overs
+// cricket looks like; this is what Saturday afternoon in Surrey actually looks
+// like. Boundaries took most of the cut — village outfields are slow, the
+// ropes are long, and runs come in ones far more than in fours.
+//
+// Median first innings ~177, middle half 150-200. See scripts/bench.mjs.
 
 const BASE = {
-  one: 0.284,
-  two: 0.064,
-  three: 0.007,
-  four: 0.069,
-  six: 0.0155,
-  wicket: 0.0225,
+  one: 0.270,
+  two: 0.052,
+  three: 0.006,
+  four: 0.050,
+  six: 0.0092,
+  wicket: 0.0235,
 } as const
 
 const PHASE = {
@@ -59,11 +68,74 @@ const PHASE = {
   death: { boundary: 1.45, wicket: 1.40, single: 0.98 },
 } as const
 
-/** Relative frequency of each way of getting out. */
-const DISMISSALS: readonly (readonly [DismissalKind, number])[] = [
-  ['c', 0.42], ['b', 0.25], ['lbw', 0.16],
-  ['run out', 0.08], ['c & b', 0.05], ['st', 0.04],
-]
+/**
+ * What a seamer and a spinner are actually *for*.
+ *
+ * Multiplies the phase rates above, so the same DEF and ATT produce a different
+ * innings depending on who is holding the ball:
+ *
+ *   pace   owns the new ball and the death, leaks through the middle once the
+ *          shine has gone and the batters are in
+ *   spin   gets carted in the powerplay — there's a reason nobody opens with a
+ *          spinner — squeezes hard through the middle, and is a liability once
+ *          the batters start swinging at the end
+ *
+ * Roughly balanced across a whole innings, so this changes *when* a bowler is
+ * worth having rather than making one type flatly better.
+ */
+const TYPE = {
+  pace: {
+    powerplay: { boundary: 0.94, wicket: 1.12 },
+    middle: { boundary: 1.06, wicket: 0.93 },
+    death: { boundary: 0.94, wicket: 1.13 },
+  },
+  spin: {
+    powerplay: { boundary: 1.22, wicket: 0.84 },
+    middle: { boundary: 0.92, wicket: 1.10 },
+    death: { boundary: 1.30, wicket: 0.84 },
+  },
+} as const
+
+/**
+ * How much a set batter changes things.
+ *
+ * A batter who's in murders a seamer but is the one a spinner gets — he's the
+ * one trying to hit over the top. Full effect at thirty balls faced.
+ */
+const SET_AT_BALLS = 30
+const SET_WICKET = { pace: -0.06, spin: 0.20 } as const
+
+/**
+ * How hard each chase order tells the batters to go, early on.
+ *
+ * The effect fades to nothing by CHASE_GRIP_UNTIL — after that the asking rate
+ * takes over whatever you said, which is what actually happens out in the
+ * middle. So the order shapes the start of the chase, not the whole of it.
+ */
+const CHASE_PUSH: Record<ChasePlan, number> = {
+  'see-it-off': 0.74,
+  'as-it-comes': 1.00,
+  'go-hard': 1.36,
+}
+const CHASE_GRIP_UNTIL = 28
+
+/**
+ * Relative frequency of each way of getting out, by bowler type.
+ *
+ * Seamers bowl people and trap them in front; spinners get catches in the ring
+ * and the occasional stumping. Nobody is stumped off a seamer — `makeDismissal`
+ * rescores that as caught behind if it ever slips through.
+ */
+const DISMISSALS_BY_TYPE = {
+  pace: [
+    ['c', 0.40], ['b', 0.28], ['lbw', 0.17],
+    ['run out', 0.08], ['c & b', 0.05], ['st', 0.02],
+  ],
+  spin: [
+    ['c', 0.46], ['b', 0.18], ['lbw', 0.14],
+    ['run out', 0.08], ['c & b', 0.05], ['st', 0.09],
+  ],
+} as const satisfies Record<string, readonly (readonly [DismissalKind, number])[]>
 
 /** Chances kept down are chances put down. */
 const DROP_CHANCE: Partial<Record<DismissalKind, number>> = {
@@ -75,10 +147,16 @@ const TEAM_MILESTONES = [50, 100, 150, 200, 250, 300, 350, 400]
 export const formatOvers = (balls: number) =>
   `${Math.floor(balls / RULES.ballsPerOver)}.${balls % RULES.ballsPerOver}`
 
+type PhaseName = 'powerplay' | 'middle' | 'death'
+
+function phaseNameFor(over: number): PhaseName {
+  if (over <= RULES.powerplayUntil) return 'powerplay'
+  if (over >= RULES.deathFrom) return 'death'
+  return 'middle'
+}
+
 function phaseFor(over: number) {
-  if (over <= RULES.powerplayUntil) return PHASE.powerplay
-  if (over >= RULES.deathFrom) return PHASE.death
-  return PHASE.middle
+  return PHASE[phaseNameFor(over)]
 }
 
 // ---------------------------------------------------------------- the innings
@@ -140,6 +218,10 @@ export function simulateInnings(input: InningsInput): InningsResult {
     if (!bowler || !bowlerCard) continue
 
     const phase = phaseFor(over)
+    // What this bowler is for: a seamer's new ball and death, a spinner's
+    // middle-over squeeze. Same ratings, different innings.
+    const kind = bowler.player.bowlType === 'spin' ? 'spin' : 'pace'
+    const type = TYPE[kind][phaseNameFor(over)]
     // The new ball is worth something for a dozen overs, and only to a bowler
     // who can actually use it.
     const swing = swingBoost(bowler.player.swing, over)
@@ -169,6 +251,12 @@ export function simulateInnings(input: InningsInput): InningsResult {
           const caution = clamp((RULES.wickets - wickets) / 4, 0.55, 1)
           aggression = 1 + (aggression - 1) * caution
         }
+        // What you told them, weighted heavily at the start and gone by the
+        // late twenties. Clamped afterwards so an order can't push the side
+        // past what the situation itself would ever ask for.
+        const grip = clamp(1 - (over - 1) / CHASE_GRIP_UNTIL, 0, 1)
+        const push = CHASE_PUSH[input.chasePlan ?? 'as-it-comes']
+        aggression = clamp(aggression * (1 + (push - 1) * grip), 0.62, 2.20)
       } else {
         // Setting a total: bat to be about seven down at the close. Wickets in
         // hand licence you to push; wickets lost pull you back.
@@ -207,9 +295,15 @@ export function simulateInnings(input: InningsInput): InningsResult {
       const settleRuns = faced >= 6 ? 1 : 0.55 + (faced / 6) * 0.45
       const settleWicket = faced >= 6 ? 1 : 1.40 - (faced / 6) * 0.40
 
-      let pWicket = BASE.wicket * wicketFactor * phase.wicket * aggWicket * settleWicket
-      let pFour = BASE.four * runsFactor * phase.boundary * aggBoundary * settleRuns
-      let pSix = BASE.six * Math.pow(runsFactor, 1.15) * phase.boundary * aggBoundary * settleRuns
+      // ...and once he's in, he's the seamer's problem and the spinner's wicket.
+      const setBy = clamp(faced / SET_AT_BALLS, 0, 1)
+      const setWicket = 1 + SET_WICKET[kind] * setBy
+
+      let pWicket =
+        BASE.wicket * wicketFactor * phase.wicket * type.wicket * aggWicket * settleWicket * setWicket
+      let pFour = BASE.four * runsFactor * phase.boundary * type.boundary * aggBoundary * settleRuns
+      let pSix =
+        BASE.six * Math.pow(runsFactor, 1.15) * phase.boundary * type.boundary * aggBoundary * settleRuns
       const rot = Math.pow(runsFactor, 0.25)
       let pOne = BASE.one * rot * phase.single * aggSingle
       let pTwo = BASE.two * rot * aggSingle
@@ -247,10 +341,10 @@ export function simulateInnings(input: InningsInput): InningsResult {
       freeHit = false
 
       if (outcome === 'W') {
-        const kind = weighted(rng, DISMISSALS)
-        let dropRate = DROP_CHANCE[kind]
+        const how = weighted(rng, DISMISSALS_BY_TYPE[kind])
+        let dropRate = DROP_CHANCE[how]
         // A stand-in keeper shells the ones behind the stumps.
-        if (standIn && dropRate !== undefined && (kind === 'st' || kind === 'c')) {
+        if (standIn && dropRate !== undefined && (how === 'st' || how === 'c')) {
           dropRate *= 1.9
         }
 
@@ -261,11 +355,11 @@ export function simulateInnings(input: InningsInput): InningsResult {
           runsThisOver += gift; bowlerRunsThisOver += gift
           bowlerCard.runs += gift
           if (gift === 4) card.fours++
-          const grassed = kind === 'st'
-            ? bowler.player.bowlType === 'spin'
+          const grassed = how === 'st'
+            ? kind === 'spin'
               ? `${keeper.name} misses the stumping`
               : `${keeper.name} shells one behind the stumps`
-            : `${fielderOf(fieldingXI, bowler.player, keeper, kind, rng).name} puts down ${card.name}`
+            : `${fielderOf(fieldingXI, bowler.player, keeper, how, rng).name} puts down ${card.name}`
           say('drop', `DROPPED! ${grassed}`, over)
           // A let-off is scored as the runs taken — the commentary carries the
           // drama, the strip just records what went on the board.
@@ -276,9 +370,9 @@ export function simulateInnings(input: InningsInput): InningsResult {
 
         wickets++
         wktsThisOver++
-        const dismissal = makeDismissal(kind, fieldingXI, bowler.player, keeper, rng)
+        const dismissal = makeDismissal(how, fieldingXI, bowler.player, keeper, rng)
         card.out = dismissal
-        if (kind !== 'run out') bowlerCard.wickets++
+        if (how !== 'run out') bowlerCard.wickets++
 
         fow.push({
           score: runs, wkt: wickets, batter: card.name, at: formatOvers(balls),

@@ -69,6 +69,24 @@ bowling ratings genuinely different tools — an ATT-heavy attack buys wickets
 but leaks, a DEF-heavy attack strangles but never breaks a set batter, and
 deciding when to use each is the game.
 
+### Seam and spin
+
+Whether a bowler is **pace** or **spin** changes what he does with the same
+ratings. It used to be decoration — flipping every bowler's type produced
+literally identical innings — and now it decides when he's worth having:
+
+| per over | powerplay | middle | death |
+|---|---|---|---|
+| **pace** | 4.75 econ · 0.20 wkts | 5.14 · 0.11 | 5.85 · 0.24 |
+| **spin** | 5.40 econ · 0.17 wkts | **4.83 · 0.16** | 6.92 · 0.21 |
+
+A seamer owns the new ball and the death and leaks through the middle once the
+shine has gone. A spinner is the opposite: carted at either end, but through the
+middle he's both cheaper *and* takes half again as many wickets — and he's the
+one who removes a **set** batter, because that's the man trying to hit over the
+top. Across a whole innings the two are within a couple of runs of each other,
+so this is about when you bowl someone, not who's better.
+
 Rough guide for a Surrey Championship side:
 
 | Rating | Standard |
@@ -135,18 +153,21 @@ Anyone since dropped from the squad or unavailable simply isn't there.
    — one toggle brings them back if you want to see what you're missing. You
    need a keeper and at least five who can bowl, and `AUTO` picks a legal side.
 2. **The attack** — share 45 overs between five and seven bowlers, max nine
-   each, and give each one *or more* spells: new ball, middle, death. A bowler
-   set to two is available across both windows. Your frontline sits above the
-   part-timers, sorted by what they're actually here for, and a preview strip
-   shows the **over-by-over rota you'll actually get** — seeded from the match
-   itself, so it isn't an estimate. Nobody bowls two overs in a row.
+   each, by giving each one **spells**: when he comes on and how long for.
+   "Six from over one, then three from thirty-four." Ends change every over, so
+   a five-over spell from over 1 is overs 1, 3, 5, 7 and 9. Your frontline sits
+   above the part-timers, sorted by what they're actually here for, and a
+   preview strip shows the **over-by-over rota you'll actually get** — seeded
+   from the match itself, so it isn't an estimate. Nobody bowls two in a row.
 3. **Fielding innings** — they bat. The scoreboard carries the two men at the
    crease with their runs and balls, and the feed runs a scorebook strip for
    every over (`. 1 4 . W 2`), so every single ball is visible. Pause, run it at
    4×, or skip it entirely.
-4. **Interval** — your order shown back with the target now known. Most weeks
-   you walk straight past it; it's there for the weeks 280 to chase wants your
-   hitter promoted.
+4. **Interval** — your order shown back with the target now known, and the one
+   team talk you get: **see it off**, **as it comes**, or **go hard**. It bites
+   hardest early and fades by the late twenties, after which the asking rate is
+   in charge whatever you said. Chasing 150 you're better off protecting
+   wickets; chasing 270 you have to have a go, and it costs you.
 5. **The chase** — you bat, with the required rate driving how hard the side
    pushes, and a **DLS par score** showing whether you're actually ahead. Par
    prices in wickets as well as balls, which a required rate can't: nine down
@@ -219,8 +240,17 @@ has actually done rather than what his ratings say he should do. Fifty is
 neutral. A batting or bowling performance is scored against a par that scales
 with his ability — thirty from the number nine is a good day and a failure from
 your best batter — and an exponential average means one innings nudges rather
-than resets. Anyone who doesn't play drifts back toward neutral, so a long
-injury leaves you neutral rather than frozen mid-slump.
+than resets.
+
+**Anyone who doesn't play goes stale.** Form used to drift back toward neutral
+when you sat someone out, which made dropping your out-of-nick batter the
+cheapest way to fix him — the exact opposite of how it works. Idle players now
+lose ground instead, down to a floor around "out of nick" that a long injury
+can't take them past. The consequence is the interesting bit: **the only way
+back into form is to play**. Carrying a struggling batter until he comes good
+is a real decision with a real cost, rather than something the bench does for
+free. Over a season the regulars sit near fifty and anyone who never gets a
+game settles on the floor.
 
 It shows on the selection row as a band (ON FIRE / IN FORM / STEADY / OUT OF
 NICK / STRUGGLING) and there's a `FORM` sort. In the simulation it replaces the
@@ -326,24 +356,40 @@ roughly a third turn up with nothing, one in six is unplayable that day.
 looks like 45-over club cricket rather than a video game. Current numbers:
 
 ```
-median first innings   219        run rate            4.99
-10th / 90th pct        155 / 266  wickets lost        7.28
-all-out rate           32.1%      extras             11.7
-ducks per innings      0.84       fifties per innings 1.19
-mean top score         72.1       hundreds/innings    0.17
+median first innings   174        run rate            4.05
+10th / 90th pct        122 / 215  wickets lost        7.70
+all-out rate           39.8%      extras             11.7
+ducks per innings      0.99       fifties per innings 0.71
+mean top score         55.8       hundreds/innings    0.04
 ```
 
 These are measured **par club against par club**, never against Bagshot — so
 editing the squad can't move the calibration.
 
+**This is pitched at Division 6 West, not at good limited-overs cricket.** The
+engine used to produce a median of 219 at nearly five an over, which is a fine
+number for a decent standard and far too rich for this league: only a fifth of
+innings landed in the 160-200 band and a quarter cleared 250. Boundaries took
+most of the cut — village outfields are slow and the ropes are long, so runs
+come in ones far more than in fours. Playing the real Div 6 West clubs against
+each other now gives a median of 178, with **48% of innings between 160 and
+200** and 250-plus down from a quarter of all innings to one in a hundred.
+
 It also checks that better ratings win more often, that no bowler exceeds nine
-overs or bowls consecutively, that split spells can't produce an illegal rota,
-that the DLS resource table is monotonic and pars correctly at both ends of an
-innings, that swing fires inside its window and nowhere else, that an
-availability score means what it says at every point on the scale, that form
-stays in range and actually changes what you score, that fresh air games and
-walk-outs can never leave you unable to field a legal XI, and that a season
+overs or bowls consecutively, that awkward spell shapes can't produce an
+illegal rota, that the DLS resource table is monotonic and pars correctly at
+both ends of an innings, that swing fires inside its window and nowhere else,
+that an availability score means what it says at every point on the scale, that
+form stays in range and actually changes what you score, that fresh air games
+and walk-outs can never leave you unable to field a legal XI, and that a season
 lands in the intended difficulty band.
+
+Four of them keep the *display* honest rather than the simulation: the
+scorebook strip must reconcile with its own over, the crease snapshot can never
+show a batter already out, the rota preview must name the bowler who really
+bowls, and — the one the spell rewrite exists for — **spells are honoured
+exactly, 100% of the time**. The old phase model leaked 16% of overs out of the
+window you chose and never mentioned it.
 
 Three of them keep the display honest rather than the simulation: the scorebook
 strip has to reconcile with its own over — six legal balls, wickets and runs
