@@ -39,7 +39,7 @@ const batIndex = (p: Player) => 0.62 * p.bat.skill + 0.38 * p.bat.pwr
 const bowlIndex = (p: Player) => 0.5 * p.bowl.def + 0.5 * p.bowl.att
 
 export function Selection({
-  squad, opponent, selected, unavailable, forms, onToggle, onAuto, onBack, onNext,
+  squad, opponent, selected, unavailable, forms, onToggle, onReorder, onAuto, onBack, onNext,
 }: {
   squad: Player[]
   opponent: Club
@@ -49,12 +49,27 @@ export function Selection({
   /** Tracked season form by player id. Absent in a friendly. */
   forms?: Record<string, number>
   onToggle: (p: Player) => void
+  /** The XI *is* the batting order, so reordering is reordering the array. */
+  onReorder: (order: Player[]) => void
   onAuto: () => void
   onBack: () => void
   onNext: () => void
 }) {
   const [sort, setSort] = useState<Sort>('batting')
   const [pickedOnly, setPickedOnly] = useState(false)
+  /** Slot currently picked up, waiting for somewhere to go. */
+  const [held, setHeld] = useState<number | null>(null)
+
+  const swap = (i: number) => {
+    if (held === null) { setHeld(i); return }
+    if (held === i) { setHeld(null); return }
+    const next = [...selected]
+    const a = next[held]
+    next[held] = next[i]
+    next[i] = a
+    onReorder(next)
+    setHeld(null)
+  }
 
   const out = unavailable ?? new Map<string, string>()
   const ids = useMemo(() => new Set(selected.map((p) => p.id)), [selected])
@@ -119,6 +134,63 @@ export function Selection({
         </div>
         <GhostButton onClick={onAuto} className="!px-4">AUTO</GhostButton>
       </div>
+
+      <Eyebrow colour={theme.gold}>
+        YOUR XI · BATTING ORDER
+      </Eyebrow>
+      <div
+        className="rounded-xl overflow-hidden mb-3"
+        style={{ border: `1px solid ${selected.length === 11 ? theme.gold : theme.border}` }}
+      >
+        {selected.length === 0 ? (
+          <div className="px-3 py-4 text-[12px] text-center" style={{ color: theme.faint }}>
+            Tap players below to pick them. They bat in the order you add them.
+          </div>
+        ) : (
+          selected.map((p, i) => {
+            const holding = held === i
+            return (
+              <button
+                key={p.id}
+                onClick={() => swap(i)}
+                className="w-full text-left px-3 py-1.5 flex items-center gap-2.5 active:scale-[0.995] transition-all"
+                style={{
+                  background: holding
+                    ? 'rgba(233,185,73,.20)'
+                    : i % 2 ? 'rgba(255,255,255,.02)' : 'transparent',
+                  borderBottom: i < selected.length - 1 ? `1px solid ${theme.border}55` : 'none',
+                  outline: holding ? `1px solid ${theme.gold}` : 'none',
+                  outlineOffset: -1,
+                }}
+              >
+                <span
+                  className="disp num w-5 text-center text-[13px] font-bold shrink-0"
+                  style={{ color: holding ? theme.gold : theme.faint }}
+                >
+                  {i + 1}
+                </span>
+                <span className="text-[13px] font-semibold truncate flex-1" style={{ color: holding ? theme.gold : theme.cream }}>
+                  {p.name}
+                  {p.wk && (
+                    <span className="disp text-[9px] ml-1.5 tracking-wider" style={{ color: theme.sky }}>†</span>
+                  )}
+                </span>
+                <span className="disp num text-[10px] shrink-0" style={{ color: theme.faint }}>
+                  {p.bat.skill}/{p.bat.pwr}
+                </span>
+              </button>
+            )
+          })
+        )}
+      </div>
+
+      {selected.length > 0 && (
+        <div className="text-[11px] leading-snug mb-3 px-1" style={{ color: theme.muted }}>
+          {held === null
+            ? 'Tap a name above to move him, then tap where he should bat.'
+            : `Moving ${selected[held].name} — tap the slot he should take.`}
+        </div>
+      )}
 
       <div className="flex gap-1.5 mb-3">
         {SORTS.map(([s, label]) => (

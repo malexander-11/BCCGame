@@ -11,6 +11,7 @@ const RECORD_KEY = 'bcc.record.v1'
 // v2 added squad availability, v3 per-player stats and form.
 const SEASON_KEY = 'bcc.season.v3'
 const PREFS_KEY = 'bcc.prefs.v1'
+const LAST_XI_KEY = 'bcc.lastxi.v1'
 
 export interface Record {
   played: number
@@ -92,6 +93,33 @@ export function saveSeason(season: Season | null): void {
   try {
     if (season) localStorage.setItem(SEASON_KEY, JSON.stringify(season))
     else localStorage.removeItem(SEASON_KEY)
+  } catch { /* private mode */ }
+}
+
+// ---------------------------------------------------------- the default team
+
+/**
+ * The last side you picked, in batting order, as player ids.
+ *
+ * Loaded back as next week's default so selection doesn't start from nothing
+ * every round. Ids rather than players, so a squad edit can't resurrect a
+ * stale copy of someone's ratings.
+ */
+export function loadLastXI(): string[] {
+  try {
+    const raw = localStorage.getItem(LAST_XI_KEY)
+    if (!raw) return []
+    const parsed: unknown = JSON.parse(raw)
+    if (Array.isArray(parsed) && parsed.every((id) => typeof id === 'string')) {
+      return parsed as string[]
+    }
+  } catch { /* fall through */ }
+  return []
+}
+
+export function saveLastXI(order: Player[]): void {
+  try {
+    localStorage.setItem(LAST_XI_KEY, JSON.stringify(order.map((p) => p.id)))
   } catch { /* private mode */ }
 }
 

@@ -11,8 +11,8 @@ import {
 import type { Season as SeasonState } from './engine/season'
 import { availablePlayers, unavailableMap } from './engine/availability'
 import {
-  loadPrefs, loadRecord, loadSeason, loadSquad, recordMatch,
-  resetSquad, savePrefs, saveSeason, saveSquad, usingCustomSquad,
+  loadLastXI, loadPrefs, loadRecord, loadSeason, loadSquad, recordMatch,
+  resetSquad, saveLastXI, savePrefs, saveSeason, saveSquad, usingCustomSquad,
 } from './storage'
 import type { Record as SeasonRecord } from './storage'
 import { Home } from './screens/Home'
@@ -65,20 +65,36 @@ export default function App() {
     setCustom(false)
   }, [])
 
-  // Selection starts empty on purpose — picking the side is the point, and a
-  // pre-filled XI turns the screen into something you tap past. AUTO is there
-  // for anyone who'd rather not.
+  /**
+   * Selection opens on the side you picked last week, in the order you picked
+   * it, minus anyone now unavailable — so a settled side is a glance and a tap
+   * rather than eleven decisions from nothing. It's your own last XI, not an
+   * auto-optimal one, so every choice is still yours to change.
+   *
+   * With nothing saved — a first ever match — fall back to the best XI on
+   * ratings, which is the shipped default team.
+   */
   const startMatch = useCallback((club: Club, league = false) => {
+    const pool = league && season ? availablePlayers(squad, season.availability) : squad
+    const byId = new Map(pool.map((p) => [p.id, p]))
+    const saved = loadLastXI()
+      .map((id) => byId.get(id))
+      .filter((p): p is Player => p !== undefined)
+    // Gaps are deliberate: if three of last week's side are away you get eight
+    // picked and three to fill, not three silent replacements.
+    const preset = saved.length > 0 ? saved : autoSelectXI(pool)
+
     setOpponent(club)
     setInLeague(league)
     setSeed(randomSeed())
-    setXi([])
+    setXi(preset)
+    setOrder(preset)
     setPlan([])
     setFirst(null)
     setSecond(null)
     setResult(null)
     setScreen('selection')
-  }, [])
+  }, [squad, season])
 
   const persistSeason = useCallback((next: SeasonState | null) => {
     setSeason(next)
@@ -157,6 +173,7 @@ export default function App() {
     const built = buildMatchResult(seed, opponent, first, innings)
     setResult(built)
     setRecord((r) => recordMatch(r, built.outcome, innings.runs, opponent.name))
+    saveLastXI(order)
     // A league fixture updates the table — and plays out the rest of its round.
     if (inLeague && season) persistSeason(recordRound(season, built, squad, xi))
     setScreen(prefs.instant ? 'result' : 'sim2')
@@ -235,6 +252,7 @@ export default function App() {
             unavailable={unavailable}
             forms={forms}
             onToggle={toggle}
+            onReorder={setXi}
             onAuto={() => {
               const picked = autoSelectXI(pickable)
               setXi(picked)
@@ -242,7 +260,7 @@ export default function App() {
             }}
             onBack={() => setScreen(homeScreen)}
             onNext={() => {
-              setXi((prev) => autoBattingOrder(prev))
+              setOrder(xi)
               if (plan.length === 0) setPlan(autoPlan(xi))
               setScreen('plan')
             }}
@@ -277,10 +295,7 @@ export default function App() {
           <InningsBreak
             innings={first}
             opponent={opponent}
-            onNext={() => {
-              setOrder(autoBattingOrder(xi))
-              setScreen('order')
-            }}
+            onNext={() => setScreen('order')}
           />
         )
 

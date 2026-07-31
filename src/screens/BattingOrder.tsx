@@ -7,8 +7,11 @@ import {
 } from '../components/ui'
 
 /**
- * Tap one player, tap another, they swap. Simplest reliable reorder on a phone
- * — no drag handles to miss.
+ * The order you set at selection, shown back once the target is known.
+ *
+ * Most weeks you'll walk straight past it. It's here for the weeks you won't —
+ * 280 to chase wants your hitter up the order, and this is the only point in
+ * the match where you know that.
  */
 export function BattingOrder({
   order, target, didNotBowl, onChange, onAuto, onBack, onNext,
@@ -44,8 +47,8 @@ export function BattingOrder({
   return (
     <div className="pt-6 pb-4 pop">
       <ScreenHeader
-        title="BATTING ORDER"
-        subtitle={`Chasing ${target} from ${RULES.overs} overs`}
+        title="YOUR ORDER"
+        subtitle={`Chasing ${target} from ${RULES.overs} overs — change it or go`}
         onBack={onBack}
         right={
           <div className="text-right">
@@ -61,7 +64,7 @@ export function BattingOrder({
         <GhostButton onClick={onAuto} className="!px-4">AUTO</GhostButton>
         <div className="flex-1 text-[11px] leading-snug self-center px-1" style={{ color: theme.muted }}>
           {held === null
-            ? 'Tap a player, then tap another to swap them.'
+            ? 'As you picked it. Tap two names to swap them.'
             : `Swapping ${order[held].name} — tap where he should bat.`}
         </div>
       </div>
@@ -137,7 +140,8 @@ export function BattingOrder({
             neither has had a fresh air game. Some of them walk out over it.
           </>
         ) : (
-          <>Bat anyone anywhere. Early wickets cost you the chase, so protect the top order.</>
+          <>This is the side you picked. Chasing {target} at{' '}
+          {(target / RULES.overs).toFixed(2)} an over, promoting a hitter may be worth it.</>
         )}
       </div>
 

@@ -118,20 +118,30 @@ Ratings can also be edited in-app under *Manage Squad*, which saves to the
 browser and overrides the file, with JSON import and export. That's per-device,
 though — to change the squad for everyone, edit the file and push.
 
+**The default team.** Whatever XI you last played, in the order it batted,
+becomes next week's starting point — including any change you made at the
+interval. With nothing saved, the first match opens on the best side by ratings.
+Anyone since dropped from the squad or unavailable simply isn't there.
+
 ---
 
 ## How a match runs
 
-1. **Selection** — eleven from the squad, starting from a blank sheet. You need
-   a keeper and at least five who can bowl. `AUTO` picks a legal side if you'd
-   rather not.
+1. **Selection** — eleven from the squad **in batting order**. The side you
+   picked last week loads automatically, minus anyone now unavailable, so a
+   settled team is a glance and a tap; gaps are left where players are missing
+   rather than filled with silent replacements. Tap two names in the XI panel to
+   swap them. You need a keeper and at least five who can bowl, and `AUTO` picks
+   a legal side if you'd rather not.
 2. **The attack** — share 45 overs between five and seven bowlers, max nine
    each, and give each one *or more* spells: new ball, middle, death. A bowler
    set to two is available across both windows. The engine builds the
    over-by-over rota from that, and nobody bowls two overs in a row.
 3. **Fielding innings** — they bat. Wickets, drops, maidens, extras and full
    bowling figures. Their total is your target.
-4. **Interval** — set your batting order having seen what you have to chase.
+4. **Interval** — your order shown back with the target now known. Most weeks
+   you walk straight past it; it's there for the weeks 280 to chase wants your
+   hitter promoted.
 5. **The chase** — you bat, with the required rate driving how hard the side
    pushes, and a **DLS par score** showing whether you're actually ahead. Par
    prices in wickets as well as balls, which a required rate can't: nine down
