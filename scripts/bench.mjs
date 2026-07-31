@@ -31,7 +31,7 @@ const {
   BAGSHOT_SQUAD, OPPOSITION, RULES, DIV6_WEST, BAGSHOT_REAL_POSITION,
   simulateMatch, simulateFieldingInnings, simulateBattingInnings, buildMatchResult,
   autoPlan, autoBattingOrder, autoSelectXI, buildRota, validatePlan, makeRng,
-  allocatedOvers, windowOf,
+  allocatedOvers, windowOf, intentEffect, intentPush, autoIntent,
   createSeason, nextFixture, recordRound, standings, seasonComplete,
   dlsPar, resources, swingBoost, SWING_WINDOW,
   initialAvailability, rollRound, availablePlayers, unavailableMap, availabilityRate,
@@ -570,6 +570,75 @@ check('mean finish, auto-managed', mean(seasonPositions), 3.5, 6.0, (v) => v.toF
 check('title is winnable', seasonPositions.filter((p) => p === 1).length / SEASONS * 100, 3, 30, (v) => v.toFixed(1) + '%')
 check('title is not a formality', seasonPositions.filter((p) => p >= 7).length / SEASONS * 100, 5, 45, (v) => v.toFixed(1) + '%')
 console.log(`  \x1b[90m${SEASONS} seasons · real Bagshot finished ${BAGSHOT_REAL_POSITION}th\x1b[0m`)
+
+// ------------------------------------------------------------ batting intent
+
+console.log('\n\x1b[1mBatting intent\x1b[0m')
+
+// The trade must depend on who is holding the bat. The first version of this
+// applied one multiplier to everybody, so telling the number eleven to attack
+// was the same deal as telling your best striker — which is the whole thing
+// this check exists to stop coming back.
+const striker = { skill: 83, pwr: 88 }
+const tailender = { skill: 20, pwr: 25 }
+const atk = intentPush('attack')
+const sEff = intentEffect(atk, striker.skill, striker.pwr)
+const tEff = intentEffect(atk, tailender.skill, tailender.pwr)
+const exchange = (e) => (e.boundary - 1) / (e.wicket - 1)
+check('attacking pays a striker more', sEff.boundary, 1.7, 2.4, (v) => `${Math.round((v - 1) * 100)}%`)
+check('attacking pays a tailender less', tEff.boundary, 1.1, 1.6, (v) => `${Math.round((v - 1) * 100)}%`)
+check('...and costs him more', tEff.wicket / sEff.wicket, 1.3, 3.0, (v) => v.toFixed(2) + '×')
+// Runs bought per unit of risk taken. The band is wide at the top on purpose:
+// these two are the extremes of the squad, and attacking with a number eleven
+// really should be a badly lopsided deal. The lower bound is the one doing the
+// work — it fails the moment intent stops caring who is batting.
+check('the striker gets the better exchange', exchange(sEff) / exchange(tEff), 1.8, 12, (v) => v.toFixed(1) + '×')
+
+const dEff = (skill) => intentEffect(intentPush('defend'), skill, 60)
+check('blocking works for a good player', dEff(85).wicket, 0.70, 0.88, (v) => v.toFixed(2))
+check('...and barely helps a tailender', dEff(25).wicket, 0.88, 0.98, (v) => v.toFixed(2))
+
+// Intent has to move the actual innings, not just the multipliers.
+const chaseWith = (intent, target) => {
+  const runs = [], wkts = []
+  for (let i = 0; i < 700; i++) {
+    const opp = evenOpponents[i % evenOpponents.length]
+    const inn = simulateBattingInnings(
+      opp, autoBattingOrder(BAGSHOT_XI), target + 1, i * 7919 + 5, undefined,
+      Array(5).fill(intent),
+    )
+    runs.push(inn.runs); wkts.push(inn.wickets)
+  }
+  return { runs: mean(runs), wkts: mean(wkts) }
+}
+const defended = chaseWith('defend', 400)   // unreachable, so they just bat
+const attacked = chaseWith('attack', 400)
+check('attack scores more than defend', attacked.runs - defended.runs, 25, 200, (v) => `+${Math.round(v)}`)
+check('...and loses more wickets', attacked.wkts - defended.wkts, 0.4, 5, (v) => `+${v.toFixed(2)}`)
+
+// The drinks break re-simulates the whole innings with a fuller plan. That is
+// only honest if everything before the block you changed comes out identical —
+// the entire interactive design rests on it.
+let prefixDrift = 0
+for (let i = 0; i < 200; i++) {
+  const opp = evenOpponents[i % evenOpponents.length]
+  const seed = i * 104729 + 11
+  const order = autoBattingOrder(BAGSHOT_XI)
+  const before = simulateBattingInnings(opp, order, 190, seed, undefined,
+    ['push', null, null, null, null])
+  const after = simulateBattingInnings(opp, order, 190, seed, undefined,
+    ['push', 'attack', null, null, null])
+  // Overs 1-9 are block one, unchanged in both.
+  for (let ov = 1; ov <= 9; ov++) {
+    const a = before.overSummaries.find((o) => o.over === ov)
+    const b = after.overSummaries.find((o) => o.over === ov)
+    if (!a || !b) continue
+    if (a.total !== b.total || a.totalWkts !== b.totalWkts || a.balls.join() !== b.balls.join()) {
+      prefixDrift++
+    }
+  }
+}
+check('re-simulation keeps the earlier overs', prefixDrift, 0, 0, (v) => v)
 
 console.log('\n\x1b[1mFresh air and squad churn\x1b[0m')
 check('fresh air games per match', mean(freshAirPerMatch), 0.5, 3, (v) => v.toFixed(2))

@@ -74,10 +74,14 @@ const DIVISION: Seed[] = [
  * Retuning the engine to a Division 6 West par — median 178 rather than 217 —
  * brought it back to +13. In a lower-scoring game every run is worth more, so
  * the same ratings edge counts for a whole league place more than it used to.
- * At +13 a well-managed side averages 4.8th and wins the title one year in
- * eight, which is where it was pitched before.
+ *
+ * Batting intent moved it again, to +14. Chases are now run on a policy that
+ * reads the asking rate against what each level of intent actually scores,
+ * which is sharper than the old rate-derived autopilot — and a sharper chase
+ * helps the better side more, because Bagshot are above this division's
+ * baseline to begin with.
  */
-const DIVISION_BASELINE = 13
+const DIVISION_BASELINE = 14
 
 // ------------------------------------------------------------------ XI shape
 //

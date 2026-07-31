@@ -43,14 +43,24 @@ type FeedItem =
   | { kind: 'event'; key: string; event: BallEvent }
 
 export function Sim({
-  innings, eyebrow, title, onDone,
+  innings, eyebrow, title, breakAfter = [], onBreak, startAt = 0, onDone,
 }: {
   innings: InningsResult
   eyebrow: string
   title: string
+  /**
+   * Overs to halt on, for the drinks breaks. The innings prop is swapped for a
+   * re-simulated one while we're stopped — playback must not restart, which is
+   * why `step` is never reset on a prop change. The prefix is identical, so the
+   * swap is invisible.
+   */
+  breakAfter?: number[]
+  onBreak?: (over: number) => void
+  /** Overs already played, so coming back from a break resumes rather than replays. */
+  startAt?: number
   onDone: () => void
 }) {
-  const [step, setStep] = useState(0)
+  const [step, setStep] = useState(startAt)
   const [feed, setFeed] = useState<FeedItem[]>([])
   const [flash, setFlash] = useState<string | null>(null)
   const [speed, setSpeed] = useState(1)
@@ -58,6 +68,8 @@ export function Sim({
 
   const done = useRef(false)
   const seenOvers = useRef(new Set<number>())
+  /** Breaks already taken, so resuming doesn't stop on the same over again. */
+  const taken = useRef(new Set<number>())
   const overs = innings.overSummaries
 
   useEffect(() => {
@@ -90,12 +102,21 @@ export function Sim({
       }
     }
 
+    // Drinks. Stop on the break over rather than ticking past it, and only
+    // once — coming back from the break, `taken` is already set so play
+    // resumes straight through.
+    if (onBreak && breakAfter.includes(summary.over) && !taken.current.has(summary.over)) {
+      taken.current.add(summary.over)
+      const t = setTimeout(() => onBreak(summary.over), delay / speed)
+      return () => clearTimeout(t)
+    }
+
     // Pausing simply stops scheduling the next tick — the feed and the score
     // stay exactly where they are.
     if (paused) return
     const t = setTimeout(() => setStep((s) => s + 1), delay / speed)
     return () => clearTimeout(t)
-  }, [step, speed, paused, overs, innings.events, onDone])
+  }, [step, speed, paused, overs, innings.events, onDone, onBreak, breakAfter])
 
   const finished = step >= overs.length
   const now = overs[Math.min(step, overs.length - 1)]

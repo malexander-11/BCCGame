@@ -69,6 +69,27 @@ bowling ratings genuinely different tools — an ATT-heavy attack buys wickets
 but leaks, a DEF-heavy attack strangles but never breaks a set batter, and
 deciding when to use each is the game.
 
+### Batting intent
+
+The other place those two ratings pull apart is when you tell the batters how
+hard to go. **Intent is how many shots they play, not how many runs they get** —
+turning intent into runs takes PWR, and surviving it takes SKILL. So the same
+order is a different deal for different men:
+
+| told to ATTACK | boundaries | risk |
+|---|---|---|
+| Adit Gandhi (SKILL 83 / PWR 88) | **+103%** | +28% |
+| a tailender (SKILL 20 / PWR 25) | +35% | +77% |
+
+Told to DEFEND, an 85-SKILL batter cuts his chance of getting out by about a
+quarter; a 25-SKILL bowler cuts it by under a tenth, because he was going to get
+out anyway. Anyone can stop playing shots — that's why only the upside is scaled
+by power.
+
+That makes the instruction interact with the batting order and with whoever
+happens to be at the crease when the break comes. The screen shows you the
+actual numbers for the two men out there, so it's a decision rather than a dial.
+
 ### Seam and spin
 
 Whether a bowler is **pace** or **spin** changes what he does with the same
@@ -165,15 +186,15 @@ Anyone since dropped from the squad or unavailable simply isn't there.
    crease with their runs and balls, and the feed runs a scorebook strip for
    every over (`. 1 4 . W 2`), so every single ball is visible. Pause, run it at
    4×, or skip it entirely.
-4. **Interval** — your order shown back with the target now known, and the one
-   team talk you get: **see it off**, **as it comes**, or **go hard**. It bites
-   hardest early and fades by the late twenties, after which the asking rate is
-   in charge whatever you said. Chasing 150 you're better off protecting
-   wickets; chasing 270 you have to have a go, and it costs you.
-5. **The chase** — you bat, with the required rate driving how hard the side
-   pushes, and a **DLS par score** showing whether you're actually ahead. Par
-   prices in wickets as well as balls, which a required rate can't: nine down
-   and level with the rate is not level at all.
+4. **Interval** — your order shown back with the target now known, and how the
+   openers play the first nine overs.
+5. **The chase** — you bat, and the innings **stops for drinks every nine
+   overs**. Each break shows the score, the asking rate, the DLS par and who's
+   in, then asks how they play the next nine: **defend, build, push, attack**.
+   There is no autopilot underneath — tell them to block out a chase you could
+   have won and they will. A **DLS par score** runs alongside the required rate,
+   because par prices in wickets as well as balls: nine down and level with the
+   rate is not level at all.
 6. **Result** — both scorecards, bowling figures, fall of wickets, and a man of
    the match.
 
@@ -400,6 +421,15 @@ honest but made the screen twelve phone-screens long — and, because the rota
 underneath was rotating five bowlers an over at a time, rendered as thirty
 one-over "spells". Counts per window are both honest and three numbers you can
 read at a glance; the tandem rule is what makes them describe real spells.
+
+Batting intent has its own two. One asserts the trade is **player-dependent** —
+a striker's exchange rate of runs for risk has to be several times better than a
+tailender's — which is the check that would have failed the first version, where
+one multiplier was applied to everybody regardless of who was holding the bat.
+The other asserts that **re-simulating with a fuller plan leaves the earlier
+overs untouched**, ball for ball. The whole drinks-break design rests on that:
+each decision re-runs the innings from scratch, and it would be a cheat if the
+overs you had already watched quietly changed underneath you.
 
 Three of them keep the display honest rather than the simulation: the scorebook
 strip has to reconcile with its own over — six legal balls, wickets and runs

@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { CHASE_PLANS, RULES } from '../data/types'
-import type { ChasePlan, Player } from '../data/types'
+import { BLOCK_OVERS, RULES } from '../data/types'
+import type { Intent, Player } from '../data/types'
+import { IntentPicker } from '../components/IntentPicker'
 import { theme } from '../theme'
 import {
   Eyebrow, GhostButton, PrimaryButton, ScreenHeader, StatBar, StickyFooter,
@@ -15,14 +16,16 @@ import {
  * the match where you know that.
  */
 export function BattingOrder({
-  order, target, didNotBowl, chasePlan, onChasePlan, onChange, onAuto, onBack, onNext,
+  order, target, didNotBowl, intent, suggested, onIntent, onChange, onAuto, onBack, onNext,
 }: {
   order: Player[]
   target: number
   /** Ids of the XI who didn't get a bowl — fresh air candidates. */
   didNotBowl?: Set<string>
-  chasePlan: ChasePlan
-  onChasePlan: (plan: ChasePlan) => void
+  /** Intent for the first nine overs. The rest are set at the breaks. */
+  intent: Intent
+  suggested: Intent
+  onIntent: (i: Intent) => void
   onChange: (order: Player[]) => void
   onAuto: () => void
   onBack: () => void
@@ -84,25 +87,18 @@ export function BattingOrder({
         </div>
       </div>
 
-      <Eyebrow colour={theme.gold}>WHAT DO YOU TELL THEM?</Eyebrow>
-      <div className="flex gap-1.5 mb-2">
-        {CHASE_PLANS.map((c) => (
-          <GhostButton
-            key={c.id}
-            active={chasePlan === c.id}
-            onClick={() => onChasePlan(c.id)}
-            className="flex-1 !px-1 !py-2.5 !text-[10px] text-center"
-          >
-            {c.label}
-          </GhostButton>
-        ))}
-      </div>
-      <div className="text-[11px] leading-snug mb-4 px-1" style={{ color: theme.muted }}>
-        {CHASE_PLANS.find((c) => c.id === chasePlan)?.blurb}{' '}
-        <span style={{ color: theme.faint }}>
-          It shapes the first twenty-odd overs; after that the asking rate takes
-          over whatever you said.
-        </span>
+      <IntentPicker
+        value={intent}
+        recommended={suggested}
+        batters={order.slice(0, 2).map((p) => ({
+          name: p.name, skill: p.bat.skill, pwr: p.bat.pwr,
+        }))}
+        onChange={onIntent}
+        heading={`FIRST ${BLOCK_OVERS} OVERS`}
+      />
+      <div className="text-[11px] leading-snug mb-4 px-1" style={{ color: theme.faint }}>
+        They'll do exactly this until the drinks break at {BLOCK_OVERS} overs, where
+        you can change it. Nobody reads the asking rate for you.
       </div>
 
       <Eyebrow>THE ORDER</Eyebrow>

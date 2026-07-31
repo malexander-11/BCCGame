@@ -1,13 +1,14 @@
-import { RULES } from '../data/types'
+import { blockOf, intentPush, RULES } from '../data/types'
 import type {
-  BallEvent, BatterCard, BowlerCard, ChasePlan, Dismissal, DismissalKind,
-  Extras, FowEntry, InningsResult, OverSummary, Player, Rota,
+  BallEvent, BatterCard, BowlerCard, Dismissal, DismissalKind, Extras, FowEntry,
+  InningsResult, Intent, OverSummary, Player, Rota,
 } from '../data/types'
 import {
   clamp, duel, makeBatterState, makeBowlerState, swingBoost,
   RUNS_DAMPING, WICKET_DAMPING,
 } from './ratings'
 import type { BatterState, BowlerState } from './ratings'
+import { autoIntent } from './ai'
 import { pickIndex, weighted } from './rng'
 import type { Rng } from './rng'
 
@@ -31,8 +32,15 @@ export interface InningsInput {
   rota: Rota
   /** Runs required to win. Null in the first innings. */
   target: number | null
-  /** What the batters were told before they went out. Ignored when setting. */
-  chasePlan?: ChasePlan
+  /**
+   * What the batters were told, one entry per nine-over block. Only read when
+   * chasing — a side setting a total plays to its own judgement.
+   *
+   * A gap means nobody has called that block yet, and the side reads the game
+   * for itself off the live state. That covers the opposition, the auto
+   * manager, and the blocks ahead of wherever the drinks break has got to.
+   */
+  intents?: (Intent | null | undefined)[]
   /**
    * Tracked season form by player id, for either side. Absent in a friendly,
    * where the streaky per-innings roll is used instead.
@@ -106,18 +114,41 @@ const SET_AT_BALLS = 30
 const SET_WICKET = { pace: -0.06, spin: 0.20 } as const
 
 /**
- * How hard each chase order tells the batters to go, early on.
+ * What an instruction is actually worth to the man carrying it out.
  *
- * The effect fades to nothing by CHASE_GRIP_UNTIL — after that the asking rate
- * takes over whatever you said, which is what actually happens out in the
- * middle. So the order shapes the start of the chase, not the whole of it.
+ * Intent is how many shots he plays. Turning that into runs takes power, and
+ * surviving it takes technique — so the same order is a good trade for one
+ * batter and a terrible one for another. That asymmetry is the whole point:
+ *
+ *   ATTACK  a 90-PWR / 83-SKILL striker  ~ +100% boundaries for  +28% risk
+ *   ATTACK  a tailender                  ~  +35% boundaries for  +77% risk
+ *   DEFEND  an 82-SKILL batter           ~ cuts his risk by about a quarter
+ *   DEFEND  a 35-SKILL bowler            ~ cuts it by a tenth; he's out anyway
+ *
+ * Defending is symmetrical on the run side — anybody can stop playing shots —
+ * so only the upside is scaled by power.
  */
-const CHASE_PUSH: Record<ChasePlan, number> = {
-  'see-it-off': 0.74,
-  'as-it-comes': 1.00,
-  'go-hard': 1.36,
+const EDGE = (v: number) => clamp(v / 60, 0.5, 1.5)
+/** What attacking costs, before the batter's technique is priced in. */
+const ATTACK_RISK = 0.55
+/** How much blocking is worth, before his technique is priced in. */
+const DEFEND_SAFETY = 0.50
+
+export function intentEffect(push: number, skill: number, pwr: number) {
+  const d = push - 1
+  const pwrEdge = EDGE(pwr)
+  const skillEdge = EDGE(skill)
+  return {
+    // Playing more shots only pays if you can hit them.
+    boundary: d > 0 ? 1 + d * pwrEdge : 1 + d,
+    // ...and only a good player can do it without getting out.
+    wicket: d > 0
+      ? 1 + (d * ATTACK_RISK) / skillEdge
+      : 1 + d * DEFEND_SAFETY * skillEdge,
+    // Hard hitting costs you the strike rotation; blocking gives some back.
+    single: clamp(1 - d * 0.16, 0.78, 1.18),
+  }
 }
-const CHASE_GRIP_UNTIL = 28
 
 /**
  * Relative frequency of each way of getting out, by bowler type.
@@ -164,6 +195,7 @@ function phaseFor(over: number) {
 export function simulateInnings(input: InningsInput): InningsResult {
   const { battingOrder, fieldingXI, rota, target, rng, forms } = input
   const chasing = target !== null
+  const intents = input.intents ?? []
 
   const batters: BatterState[] = battingOrder.map((p) => makeBatterState(p, rng, forms?.[p.id]))
   const cards: BatterCard[] = battingOrder.map((p, i) => ({
@@ -240,33 +272,32 @@ export function simulateInnings(input: InningsInput): InningsResult {
       const card = cards[striker]
 
       // --- how hard is the batting side trying right now? -----------------
-      let aggression: number
+      //
+      // In a chase this is entirely the manager's call, block by block. There
+      // is no rate-driven autopilot underneath: tell them to block out a chase
+      // you could have won and they will, which is what makes the required rate
+      // worth reading. Setting a total is still the side's own judgement.
+      let push: number
       if (chasing) {
-        const need = target! - runs
-        const ballsLeft = RULES.balls - balls
-        const reqRate = ballsLeft > 0 ? (need / ballsLeft) * 6 : 99
-        aggression = clamp(reqRate / 5.0, 0.70, 2.20)
-        if (aggression > 1 && reqRate <= 9) {
-          // Wickets in hand buy you the right to take risks.
-          const caution = clamp((RULES.wickets - wickets) / 4, 0.55, 1)
-          aggression = 1 + (aggression - 1) * caution
-        }
-        // What you told them, weighted heavily at the start and gone by the
-        // late twenties. Clamped afterwards so an order can't push the side
-        // past what the situation itself would ever ask for.
-        const grip = clamp(1 - (over - 1) / CHASE_GRIP_UNTIL, 0, 1)
-        const push = CHASE_PUSH[input.chasePlan ?? 'as-it-comes']
-        aggression = clamp(aggression * (1 + (push - 1) * grip), 0.62, 2.20)
+        // Blocks nobody has called are read off the live state, so the
+        // opposition and the auto manager play the situation in front of them
+        // rather than a guess made before the innings started. Still a pure
+        // function of the score, so re-simulation stays reproducible.
+        const called = intents[blockOf(over)]
+        push = intentPush(
+          called ?? autoIntent(target! - runs, RULES.balls - balls, wickets),
+        )
       } else {
-        // Setting a total: bat to be about seven down at the close. Wickets in
-        // hand licence you to push; wickets lost pull you back.
+        // Bat to be about seven down at the close. Wickets in hand licence you
+        // to push; wickets lost pull you back.
         const parLost = 7 * (balls / RULES.balls)
-        aggression = clamp(1 + (parLost - wickets) * 0.055, 0.74, 1.28)
+        push = clamp(1 + (parLost - wickets) * 0.055, 0.74, 1.28)
       }
 
-      const aggBoundary = aggression
-      const aggSingle = clamp(1.15 - aggression * 0.15, 0.75, 1.15)
-      const aggWicket = clamp(0.5 + 0.5 * aggression, 0.6, 1.9)
+      const eff = intentEffect(push, batter.player.bat.skill, batter.player.bat.pwr)
+      const aggBoundary = eff.boundary
+      const aggSingle = eff.single
+      const aggWicket = eff.wicket
 
       // --- extras come before anything else -------------------------------
       const looseness = 1 / Math.pow(effDef, 0.6)

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { BLOCK_COUNT, BLOCK_OVERS, BREAK_OVERS } from './data/types'
 import type {
-  BowlingPlan as Plan, ChasePlan, Club, InningsResult, MatchResult, Player,
+  BowlingPlan as Plan, Club, InningsResult, Intent, MatchResult, Player,
 } from './data/types'
-import { autoBattingOrder, autoSelectXI } from './engine/ai'
+import { autoBattingOrder, autoIntents, autoSelectXI } from './engine/ai'
 import { buildMatchResult, simulateBattingInnings, simulateFieldingInnings } from './engine/match'
 import { autoPlan } from './engine/rota'
 import { randomSeed } from './engine/rng'
@@ -25,12 +26,13 @@ import { BowlingPlan } from './screens/BowlingPlan'
 import { Sim } from './screens/Sim'
 import { InningsBreak } from './screens/InningsBreak'
 import { BattingOrder } from './screens/BattingOrder'
+import { DrinksBreak } from './screens/DrinksBreak'
 import { Result } from './screens/Result'
 import { Squad } from './screens/Squad'
 
 type Screen =
   | 'home' | 'squad' | 'season' | 'stats' | 'selection' | 'plan'
-  | 'sim1' | 'break' | 'order' | 'sim2' | 'result'
+  | 'sim1' | 'break' | 'order' | 'sim2' | 'drinks' | 'result'
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>('home')
@@ -47,7 +49,14 @@ export default function App() {
   const [xi, setXi] = useState<Player[]>([])
   const [plan, setPlan] = useState<Plan>([])
   const [order, setOrder] = useState<Player[]>([])
-  const [chasePlan, setChasePlan] = useState<ChasePlan>('as-it-comes')
+  /** One intent per nine-over block. Null means "nobody has called it yet". */
+  const [intents, setIntents] = useState<(Intent | null)[]>(
+    () => Array<Intent | null>(BLOCK_COUNT).fill(null),
+  )
+  /** The over we're stopped at for drinks, if any. */
+  const [drinksAt, setDrinksAt] = useState<number | null>(null)
+  /** Overs already watched, so resuming after drinks doesn't replay the chase. */
+  const [watchedTo, setWatchedTo] = useState(0)
   const [first, setFirst] = useState<InningsResult | null>(null)
   const [second, setSecond] = useState<InningsResult | null>(null)
   const [result, setResult] = useState<MatchResult | null>(null)
@@ -87,6 +96,9 @@ export default function App() {
       case 'break': return 'break'
       case 'order': return 'break'
       case 'sim2': return 'result'
+      // Drinks is a decision you have to make — there's nowhere behind it, and
+      // the overs it follows have already been bowled.
+      case 'drinks': return 'drinks'
       case 'result': return inLeague ? 'season' : 'home'
     }
   }, [inLeague])
@@ -231,21 +243,76 @@ export default function App() {
     setScreen(prefs.instant ? 'break' : 'sim1')
   }, [opponent, xi, plan, seed, forms, prefs.instant])
 
-  const startChase = useCallback(() => {
+  /**
+   * Run the chase with the intents decided so far.
+   *
+   * Called again after every drinks break. The RNG is seeded and consumed in
+   * order, so everything before the block you just changed comes out ball for
+   * ball identical — which is what lets the break be a genuine mid-innings
+   * decision rather than a plan made before the openers walked out.
+   */
+  const simulateChase = useCallback((list: (Intent | null)[]) => {
+    if (!opponent || !first) return null
+    const target = first.runs + 1
+    const auto = autoIntents(target)
+    const resolved = list.map((v, i) => v ?? auto[i])
+    return simulateBattingInnings(opponent, order, target, seed, forms, resolved)
+  }, [opponent, first, order, seed, forms])
+
+  /** The next break the innings actually reaches. Null once it's over. */
+  const nextBreak = useCallback((innings: InningsResult, after: number) => {
+    const last = innings.overSummaries[innings.overSummaries.length - 1]?.over ?? 0
+    return BREAK_OVERS.find((o) => o > after && o < last) ?? null
+  }, [])
+
+  /** The chase is done — bank it. */
+  const finishChase = useCallback((innings: InningsResult) => {
     if (!opponent || !first) return
-    const innings = simulateBattingInnings(
-      opponent, order, first.runs + 1, seed, forms, chasePlan,
-    )
-    setSecond(innings)
     const built = buildMatchResult(seed, opponent, first, innings)
     setResult(built)
     setRecord((r) => recordMatch(r, built.outcome, innings.runs, opponent.name))
     saveLastXI(order)
     // A league fixture updates the table — and plays out the rest of its round.
     if (inLeague && season) persistSeason(recordRound(season, built, squad, xi))
-    setScreen(prefs.instant ? 'result' : 'sim2')
-  }, [opponent, first, order, seed, forms, chasePlan, xi, inLeague, season, squad,
-      persistSeason, prefs.instant])
+  }, [opponent, first, seed, order, xi, inLeague, season, squad, persistSeason])
+
+  const startChase = useCallback(() => {
+    const innings = simulateChase(intents)
+    if (!innings) return
+    setSecond(innings)
+    setWatchedTo(0)
+    // Instant results skips the playback, not the management — the breaks are
+    // the game, so they still happen.
+    if (prefs.instant) {
+      const nb = nextBreak(innings, 0)
+      if (nb !== null) { setDrinksAt(nb); setScreen('drinks'); return }
+      finishChase(innings)
+      setScreen('result')
+      return
+    }
+    setScreen('sim2')
+  }, [simulateChase, intents, prefs.instant, nextBreak, finishChase])
+
+  /** Coming out of drinks with an instruction for the next nine overs. */
+  const playOn = useCallback((intent: Intent) => {
+    if (drinksAt === null) return
+    const next = [...intents]
+    next[Math.floor(drinksAt / BLOCK_OVERS)] = intent
+    setIntents(next)
+    const innings = simulateChase(next)
+    if (!innings) return
+    setSecond(innings)
+    setWatchedTo(drinksAt)
+    setDrinksAt(null)
+    if (prefs.instant) {
+      const nb = nextBreak(innings, drinksAt)
+      if (nb !== null) { setDrinksAt(nb); return }
+      finishChase(innings)
+      setScreen('result')
+      return
+    }
+    setScreen('sim2')
+  }, [drinksAt, intents, simulateChase, prefs.instant, nextBreak, finishChase])
 
   const toggleInstant = useCallback(() => {
     setPrefs((p) => {
@@ -384,8 +451,9 @@ export default function App() {
                   )
                 : undefined
             }
-            chasePlan={chasePlan}
-            onChasePlan={setChasePlan}
+            intent={intents[0] ?? autoIntents(first.runs + 1)[0]}
+            suggested={autoIntents(first.runs + 1)[0]}
+            onIntent={(i) => setIntents((prev) => { const n = [...prev]; n[0] = i; return n })}
             onChange={setOrder}
             onAuto={() => setOrder(autoBattingOrder(xi))}
             onBack={() => setScreen('break')}
@@ -399,7 +467,20 @@ export default function App() {
             innings={second}
             eyebrow="SECOND INNINGS · THE CHASE"
             title={`Bagshot need ${second.target}`}
-            onDone={() => setScreen('result')}
+            breakAfter={BREAK_OVERS}
+            startAt={watchedTo}
+            onBreak={(over) => { setDrinksAt(over); setScreen('drinks') }}
+            onDone={() => { finishChase(second); setScreen('result') }}
+          />
+        )
+
+      case 'drinks':
+        return second && drinksAt !== null && (
+          <DrinksBreak
+            innings={second}
+            order={order}
+            afterOver={drinksAt}
+            onPlayOn={playOn}
           />
         )
 

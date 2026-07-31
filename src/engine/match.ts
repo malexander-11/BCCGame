@@ -1,6 +1,6 @@
 import { RULES } from '../data/types'
 import type {
-  BowlingPlan, ChasePlan, Club, InningsResult, MatchOutcome, MatchResult, Player,
+  BowlingPlan, Club, InningsResult, Intent, MatchOutcome, MatchResult, Player,
 } from '../data/types'
 import { autoBattingOrder } from './ai'
 import { formatOvers, simulateInnings } from './innings'
@@ -43,7 +43,7 @@ export function simulateFieldingInnings(
 
 export function simulateBattingInnings(
   opponent: Club, bagshotOrder: Player[], target: number, seed: number,
-  forms?: Record<string, number>, chasePlan?: ChasePlan,
+  forms?: Record<string, number>, intents?: (Intent | null)[],
 ): InningsResult {
   const rng = secondRng(seed)
   return simulateInnings({
@@ -53,7 +53,9 @@ export function simulateBattingInnings(
     fieldingXI: opponent.xi,
     rota: buildRota(autoPlan(opponent.xi), rng),
     target,
-    chasePlan,
+    // Gaps are filled from the live score by the engine, so an unmanaged chase
+    // reads the game rather than following a plan drawn up in advance.
+    intents,
     forms,
     rng,
   })

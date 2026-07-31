@@ -62,33 +62,47 @@ export interface Club {
 // ------------------------------------------------------------- chase orders
 
 /**
- * What you tell the batters before they go out to chase.
+ * How hard the batters are trying, set for one nine-over block at a time.
  *
- * The instruction bites hardest early and fades as the innings goes on — by the
- * thirties the asking rate is in charge whatever you said, which is exactly how
- * it works in the middle. It buys you a genuine trade rather than a free
- * choice: going hard puts you ahead of the rate and costs wickets, seeing it
- * off keeps ten in hand and leaves a steeper climb.
+ * The number is *intent* — how many shots they play — not an outcome. What that
+ * intent is worth depends entirely on who is at the crease: power turns shots
+ * into boundaries, technique keeps you in while you play them. Telling your
+ * best striker to attack is a good trade; telling your number eleven to attack
+ * is close to suicide. `intentEffect` in the engine is where that happens.
  */
-export type ChasePlan = 'see-it-off' | 'as-it-comes' | 'go-hard'
+export type Intent = 'defend' | 'build' | 'push' | 'attack'
 
-export const CHASE_PLANS: { id: ChasePlan; label: string; blurb: string }[] = [
+export const INTENTS: { id: Intent; label: string; blurb: string; push: number }[] = [
   {
-    id: 'see-it-off',
-    label: 'SEE IT OFF',
-    blurb: 'Bat time. Respect the new ball, keep wickets, back yourselves later.',
+    id: 'defend', label: 'DEFEND', push: 0.65,
+    blurb: 'Bat time. Get behind it, see off the good ones, take no risks.',
   },
   {
-    id: 'as-it-comes',
-    label: 'AS IT COMES',
-    blurb: 'Play the rate. Push when it climbs, settle when it drops.',
+    id: 'build', label: 'BUILD', push: 0.90,
+    blurb: 'Knock it around. Ones and twos, boundaries only when they come.',
   },
   {
-    id: 'go-hard',
-    label: 'GO HARD',
-    blurb: 'Get after them from ball one and put the chase to bed early.',
+    id: 'push', label: 'PUSH', push: 1.25,
+    blurb: 'Up the tempo. Look for the gaps and take on the loose ball.',
+  },
+  {
+    id: 'attack', label: 'ATTACK', push: 1.70,
+    blurb: 'Get after them. Every ball is there to be hit.',
   },
 ]
+
+export const intentPush = (i: Intent) => INTENTS.find((x) => x.id === i)!.push
+
+/** Overs per block of the innings — 45 overs is exactly five nine-over blocks. */
+export const BLOCK_OVERS = 9
+export const BLOCK_COUNT = 5
+
+/** Which block an over belongs to, 0-4. */
+export const blockOf = (over: number) =>
+  Math.min(BLOCK_COUNT - 1, Math.floor((over - 1) / BLOCK_OVERS))
+
+/** The over you'd break after, for each block but the last: 9, 18, 27, 36. */
+export const BREAK_OVERS = Array.from({ length: BLOCK_COUNT - 1 }, (_, i) => (i + 1) * BLOCK_OVERS)
 
 export type Window = 'newBall' | 'middle' | 'death'
 
