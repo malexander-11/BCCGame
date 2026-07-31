@@ -1,3 +1,4 @@
+import { RULES } from '../data/types'
 import type { Player } from '../data/types'
 import { AWAY_REASONS, FALLOUTS, INJURIES, RETURN_LINES } from '../data/events'
 import { isBowler } from './ratings'
@@ -161,22 +162,61 @@ export function rollRound(
     add({ playerId: p.id, playerName: p.name, kind: 'away', text: `${p.name} is ${reason}` })
   }
 
-  const state: AvailabilityState = { absences, away, log }
+  return ensurePickable({ absences, away, log }, squad, round)
+}
 
-  // --- last-resort guard --------------------------------------------------
-  // A squad that can't raise a legal XI isn't a challenge, it's a bug. Recall
-  // players who are merely busy — never the injured — until an XI is possible.
+/**
+ * A squad that can't raise a legal XI isn't a challenge, it's a bug.
+ *
+ * Recalls players who are merely busy — never the injured, and never anyone who
+ * has walked out — until an eleven with five bowlers is possible again. Called
+ * after every roll, and again after fresh air fallouts, which land later.
+ */
+export function ensurePickable(
+  state: AvailabilityState, squad: Player[], round: number,
+): AvailabilityState {
+  let next = state
   while (true) {
-    const fit = availablePlayers(squad, state)
-    const enough = fit.length >= 11 && fit.filter(isBowler).length >= 5
-    if (enough || state.away.length === 0) break
-    const recalled = state.away.pop()!
-    state.log = state.log.filter(
-      (e) => !(e.round === round && e.kind === 'away' && e.playerId === recalled.playerId),
-    )
+    const fit = availablePlayers(squad, next)
+    if (fit.length >= 11 && fit.filter(isBowler).length >= RULES.minBowlers) break
+    if (next.away.length === 0) break
+    const away = [...next.away]
+    const recalled = away.pop()!
+    next = {
+      ...next,
+      away,
+      log: next.log.filter(
+        (e) => !(e.round === round && e.kind === 'away' && e.playerId === recalled.playerId),
+      ),
+    }
   }
+  return next
+}
 
-  return state
+/**
+ * A player walks out. Used by the fresh air rule, which is the one absence the
+ * manager brought on himself.
+ */
+export function addFallout(
+  state: AvailabilityState, player: Player, round: number, rounds: number, reason: string,
+): AvailabilityState {
+  if (state.absences.some((a) => a.playerId === player.id)) return state
+  return {
+    ...state,
+    absences: [
+      ...state.absences,
+      { playerId: player.id, kind: 'fallout', reason, until: round + rounds },
+    ],
+    // Also drop him from this week's away list if he somehow appears twice.
+    away: state.away.filter((a) => a.playerId !== player.id),
+    log: [
+      ...state.log,
+      {
+        round, playerId: player.id, playerName: player.name, kind: 'fallout',
+        text: `${player.name} ${reason}`, rounds,
+      },
+    ],
+  }
 }
 
 /** Seed round one, so a season opens with people already crocked. */

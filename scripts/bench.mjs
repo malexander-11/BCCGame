@@ -34,6 +34,7 @@ const {
   createSeason, nextFixture, recordRound, standings, seasonComplete,
   dlsPar, resources, swingBoost, SWING_WINDOW,
   initialAvailability, rollRound, availablePlayers, unavailableMap,
+  seasonForms, formMultiplier, freshAirPlayers, NEUTRAL_FORM,
 } = await import(join(outdir, 'engine.mjs'))
 
 const argMatches = process.argv.indexOf('--matches')
@@ -335,9 +336,38 @@ console.log(
   `— a stand-in keeps, at a cost\x1b[0m`,
 )
 
+// ------------------------------------------------------------ form
+
+console.log('\n\x1b[1mForm\x1b[0m')
+check('neutral form is exactly par', formMultiplier(NEUTRAL_FORM), 1, 1, (v) => v.toFixed(3))
+check('in form beats out of form', formMultiplier(85) / formMultiplier(15), 1.2, 1.8, (v) => v.toFixed(2))
+
+// Form has to actually change results, or it's decoration.
+const runsAtForm = (value) => {
+  const club = DIV6_WEST[4]
+  const xi = autoSelectXI(BAGSHOT_SQUAD)
+  const forms = {}
+  for (const p of BAGSHOT_SQUAD) forms[p.id] = value
+  let total = 0
+  const n = 500
+  for (let i = 0; i < n; i++) {
+    total += simulateBattingInnings(club, autoBattingOrder(xi), 400, i * 7919 + 3, forms).runs
+  }
+  return total / n
+}
+const lowForm = runsAtForm(20)
+const highForm = runsAtForm(80)
+check('form changes what you score', highForm - lowForm, 25, 200, (v) => v.toFixed(1))
+console.log(`  \x1b[90mform 20: ${lowForm.toFixed(0)} · form 80: ${highForm.toFixed(0)} per innings\x1b[0m`)
+
 console.log('\n\x1b[1mDivision 6 West\x1b[0m')
 
 const seasonPositions = []
+const freshAirPerMatch = []
+const seasonForms_ = []
+let formOutOfRange = 0
+let seasonFallouts = 0
+let seasonUnpickable = 0
 const SEASONS = Math.max(60, Math.floor(MATCHES / 20))
 for (let s = 0; s < SEASONS; s++) {
   let season = createSeason(s * 7919 + 11, BAGSHOT_SQUAD)
@@ -347,12 +377,20 @@ for (let s = 0; s < SEASONS; s++) {
     const sd = (s * 31 + f.round) * 104729
     const fit = availablePlayers(BAGSHOT_SQUAD, season.availability)
     const xiR = autoSelectXI(fit)
-    const one = simulateFieldingInnings(opp, xiR, autoPlan(xiR), sd)
-    const two = simulateBattingInnings(opp, autoBattingOrder(xiR), one.runs + 1, sd)
-    season = recordRound(season, buildMatchResult(sd, opp, one, two), BAGSHOT_SQUAD)
+    const fm = seasonForms(season)
+    const one = simulateFieldingInnings(opp, xiR, autoPlan(xiR), sd, fm)
+    const two = simulateBattingInnings(opp, autoBattingOrder(xiR), one.runs + 1, sd, fm)
+    freshAirPerMatch.push(freshAirPlayers(xiR, one, two).length)
+    if (fit.length < 11) seasonUnpickable++
+    season = recordRound(season, buildMatchResult(sd, opp, one, two), BAGSHOT_SQUAD, xiR)
   }
   const table = standings(season)
   seasonPositions.push(table.find((r) => r.isBagshot).position)
+  for (const p of Object.values(season.players)) {
+    if (p.form < 0 || p.form > 100 || Number.isNaN(p.form)) formOutOfRange++
+    seasonForms_.push(p.form)
+  }
+  seasonFallouts += season.availability.log.filter((e) => e.kind === 'fallout').length
   if (table.length !== 10) seasonPositions.push(99)
   // Everybody must have played all nine.
   if (table.some((r) => r.played !== 9)) seasonPositions.push(99)
@@ -361,6 +399,13 @@ check('mean finish, auto-managed', mean(seasonPositions), 3.5, 6.0, (v) => v.toF
 check('title is winnable', seasonPositions.filter((p) => p === 1).length / SEASONS * 100, 3, 30, (v) => v.toFixed(1) + '%')
 check('title is not a formality', seasonPositions.filter((p) => p >= 7).length / SEASONS * 100, 5, 45, (v) => v.toFixed(1) + '%')
 console.log(`  \x1b[90m${SEASONS} seasons · real Bagshot finished ${BAGSHOT_REAL_POSITION}th\x1b[0m`)
+
+console.log('\n\x1b[1mFresh air and squad churn\x1b[0m')
+check('fresh air games per match', mean(freshAirPerMatch), 0.5, 3, (v) => v.toFixed(2))
+check('form stays in range', formOutOfRange, 0, 0, (v) => v)
+check('form averages near neutral', mean(seasonForms_), 44, 58, (v) => v.toFixed(1))
+check('fallouts per season', seasonFallouts / SEASONS, 2, 11, (v) => v.toFixed(1))
+check('never short of a legal XI', seasonUnpickable, 0, 0, (v) => v)
 
 rmSync(outdir, { recursive: true, force: true })
 

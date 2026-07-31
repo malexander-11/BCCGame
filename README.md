@@ -93,7 +93,6 @@ make the side:
   name: 'Alex Dunnage',
   value: 1.5,                             // £m — displayed, not spent
   role: 'Spin all-rounder',               // the club's own label
-  positions: [3, 6],                      // legal batting slots, inclusive
   bowlType: 'spin',
   swing: 0,                               // optional — new-ball movement
   bat:  { skill: 79, pwr: 93 },
@@ -101,12 +100,11 @@ make the side:
 }
 ```
 
-Two fields aren't in the source table and were derived:
+One field isn't in the source table: **`bowlType`**, set to `spin` for the spin
+roles and `pace` otherwise.
 
-- **`positions`** — from each player's role and batting quality. Treat it as a
-  first cut. Batting someone outside his range is allowed, it just costs him a
-  little, and the scorecard flags him `OOP`.
-- **`bowlType`** — `spin` for the spin roles, `pace` otherwise.
+There is **no preferred batting position** — bat anyone anywhere. What you do
+need to watch is that everyone you pick gets a go; see fresh air games below.
 
 A rating **below 20 in either DEF or ATT means the player doesn't bowl**, so the
 1s against the specialist batters keep them out of the attack. Whoever is
@@ -169,6 +167,46 @@ Flavour text lives in [`src/data/events.ts`](src/data/events.ts) and the
 mechanics in [`src/engine/availability.ts`](src/engine/availability.ts). It's
 deterministic in the season seed, so reloading can't reshuffle who is fit.
 
+## Form and fresh air games
+
+Two things make selection more than a ratings lookup.
+
+**Form** is a 0-100 read on how a player is going right now, moved by what he
+has actually done rather than what his ratings say he should do. Fifty is
+neutral. A batting or bowling performance is scored against a par that scales
+with his ability — thirty from the number nine is a good day and a failure from
+your best batter — and an exponential average means one innings nudges rather
+than resets. Anyone who doesn't play drifts back toward neutral, so a long
+injury leaves you neutral rather than frozen mid-slump.
+
+It shows on the selection row as a band (ON FIRE / IN FORM / STEADY / OUT OF
+NICK / STRUGGLING) and there's a `FORM` sort. In the simulation it replaces the
+hidden per-innings roll, and it bites: the same side at form 80 scores about
+**70 more per innings** than at form 20. Neutral form is exactly 1.0, so
+friendlies — which have no history — play precisely as they always did.
+
+**A fresh air game** is a player you picked who then neither faced a ball nor
+bowled one. He gave up his Saturday, put his whites on and did nothing, and club
+cricketers do not take that well: he may walk out for two to four weeks.
+
+It doesn't fire every time — a short chase can leave three players idle, and
+removing three a week would empty the squad by August — but it escalates:
+**30% first offence, 55% second, 80% third**. About 1.3 fresh air games a match,
+five or six walk-outs a season. Both numbers are one constant each in
+[`src/engine/freshair.ts`](src/engine/freshair.ts).
+
+You get warned first. The batting-order screen knows who bowled, so it flags
+anyone batting low who didn't get a spell. This is the reason dropping preferred
+batting positions matters: you're free to bat anyone anywhere, and now you have
+a reason to care where.
+
+## Season stats
+
+The season screen has a `STATS` button: batting (M, I, runs, HS, average, strike
+rate), bowling (overs, maidens, runs, wickets, average, economy, best figures),
+fielding (catches, stumpings, run outs), each with the player's current form,
+plus a fresh air games table so you can see who you've been letting down.
+
 ## The season
 
 `src/data/league.ts` holds the ten Division 6 West clubs and their real 2025
@@ -182,9 +220,13 @@ around you.
 **On difficulty.** Bagshot really finished 7th of 10. Pitching the league so an
 auto-picked side lands there needed the opposition so strong that the title was
 a 1-in-50 shot — accurate, but not a game. It's tuned instead so a well-managed
-Bagshot is around 4th-5th: top four about half of seasons, champions roughly one
-in eleven, and still capable of a bad year. The real 7th is the benchmark shown
-on the table for you to beat. One constant, `DIVISION_BASELINE`, controls it.
+Bagshot is around 4th-5th: top four a bit over half of seasons, champions
+roughly one in nine, and still capable of a bad year. The real 7th is the
+benchmark shown on the table for you to beat.
+
+One constant, `DIVISION_BASELINE`, controls it, and it has moved twice to hold
+that difficulty as the game gained mechanics — down when availability landed,
+back up when form did. A strong side in form compounds.
 
 ## Friendlies
 
@@ -227,6 +269,8 @@ goalposts.
 | `ai.ts` | Auto XI selection and batting order, used for the opposition and the AUTO buttons. |
 | `season.ts` | Fixtures, league table, points and net run rate for Division 6 West. |
 | `availability.ts` | Who's away, injured or sulking, and the running team-news log. |
+| `form.ts` | Rolling form from recent performances, and its simulation multiplier. |
+| `freshair.ts` | Players who did nothing all day, and whether they walk out over it. |
 | `dls.ts` | Duckworth-Lewis Standard Edition resource table and par scores. |
 | `rng.ts` | Seeded PRNG — every match is a pure function of its seed, shown on the result screen. |
 
@@ -253,8 +297,10 @@ It also checks that better ratings win more often, that no bowler exceeds nine
 overs or bowls consecutively, that split spells can't produce an illegal rota,
 that the DLS resource table is monotonic and pars correctly at both ends of an
 innings, that swing fires inside its window and nowhere else, that availability
-stays in its three-to-five bands and can never leave you unable to field a legal
-XI, and that a season lands in the intended difficulty band. All 37 checks pass.
+stays in its three-to-five bands, that form stays in range and actually changes
+what you score, that fresh air games and walk-outs can never leave you unable to
+field a legal XI, and that a season lands in the intended difficulty band. All
+45 checks pass.
 
 The mirror-match check plays a side against itself: the chasing side wins 55.5%,
 in line with real limited-overs cricket, where knowing the target is worth

@@ -17,3 +17,6 @@ export { swingBoost, SWING_WINDOW } from '../src/engine/ratings'
 export {
   initialAvailability, rollRound, availablePlayers, unavailableMap, roundNews,
 } from '../src/engine/availability'
+export { seasonForms, emptyPlayerStats } from '../src/engine/season'
+export { formMultiplier, formBand, updateForm, driftForm, NEUTRAL_FORM } from '../src/engine/form'
+export { freshAirPlayers, applyFreshAir } from '../src/engine/freshair'

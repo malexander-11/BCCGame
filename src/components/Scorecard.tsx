@@ -35,11 +35,6 @@ export function Scorecard({ innings }: { innings: InningsResult }) {
             <span className="min-w-0 pr-2">
               <span className="text-[13px] font-semibold block truncate">
                 {b.name}
-                {b.outOfPosition && (
-                  <span className="disp text-[9px] ml-1.5 tracking-wider" style={{ color: theme.red }}>
-                    OOP
-                  </span>
-                )}
               </span>
               <span className="text-[10.5px] block truncate" style={{ color: theme.muted }}>
                 {b.out ? b.out.text : 'not out'}

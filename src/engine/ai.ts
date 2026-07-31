@@ -33,36 +33,17 @@ export function autoSelectXI(squad: Player[]): Player[] {
 }
 
 /**
- * Picks a batting order the way a captain would: fill each slot with the best
- * available player who actually bats there, and only reach outside a player's
- * range when nothing else is left.
+ * A sensible batting order: best batter first, tail last.
  *
- * Used for the opposition, and offered as the "auto" button on Bagshot's own
+ * Used for the opposition, and offered as the AUTO button on Bagshot's own
  * batting-order screen.
  */
 export function autoBattingOrder(xi: Player[]): Player[] {
-  const pool = [...xi]
-  const order: Player[] = []
-
-  for (let slot = 1; slot <= xi.length; slot++) {
-    const eligible = pool.filter((p) => slot >= p.positions[0] && slot <= p.positions[1])
-    const candidates = eligible.length > 0 ? eligible : pool
-
-    let best = candidates[0]
-    let bestScore = -Infinity
-    for (const p of candidates) {
-      // Prefer good players early, but respect how specialised the slot is —
-      // a [1,2] opener left unplaced at slot 3 is a wasted opener.
-      const urgency = eligible.length > 0 ? (11 - p.positions[1]) * 0.6 : 0
-      const score = playerQuality(p) + urgency
-      if (score > bestScore) { bestScore = score; best = p }
-    }
-
-    order.push(best)
-    pool.splice(pool.indexOf(best), 1)
-  }
-
-  return order
+  // No preferred slots any more, so this is simply best batter first. Bowlers
+  // sink to the tail on their own, which is where they were going anyway.
+  return [...xi].sort(
+    (a, b) => (0.62 * b.bat.skill + 0.38 * b.bat.pwr) - (0.62 * a.bat.skill + 0.38 * a.bat.pwr),
+  )
 }
 
 /** Cheap read on how strong an XI is, used for match previews. */

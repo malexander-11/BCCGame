@@ -4,11 +4,12 @@ import { BAGSHOT_SQUAD } from './data/squad'
 
 // Bumped whenever the shipped squad changes shape, so a stale save can't shadow
 // it: v2 replaced the placeholders with the real squad and added `value`, v3
-// trimmed it from 42 players to 24, v4 restored three and added swing ratings.
-const SQUAD_KEY = 'bcc.squad.v4'
+// trimmed it from 42 players to 24, v4 restored three and added swing ratings,
+// v5 dropped the preferred batting position.
+const SQUAD_KEY = 'bcc.squad.v5'
 const RECORD_KEY = 'bcc.record.v1'
-// v2 added squad availability — a v1 save has no team news and would crash.
-const SEASON_KEY = 'bcc.season.v2'
+// v2 added squad availability, v3 per-player stats and form.
+const SEASON_KEY = 'bcc.season.v3'
 const PREFS_KEY = 'bcc.prefs.v1'
 
 export interface Record {
@@ -31,8 +32,7 @@ function looksLikePlayer(v: unknown): v is Player {
     typeof p.bat?.skill === 'number' &&
     typeof p.bat?.pwr === 'number' &&
     typeof p.bowl?.def === 'number' &&
-    typeof p.bowl?.att === 'number' &&
-    Array.isArray(p.positions) && p.positions.length === 2
+    typeof p.bowl?.att === 'number'
   )
 }
 

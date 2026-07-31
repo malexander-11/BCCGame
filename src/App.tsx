@@ -6,7 +6,7 @@ import { autoPlan } from './engine/rota'
 import { randomSeed } from './engine/rng'
 import { DIV6_WEST } from './data/league'
 import {
-  createSeason, nextFixture, recordRound, seasonComplete,
+  createSeason, nextFixture, recordRound, seasonComplete, seasonForms,
 } from './engine/season'
 import type { Season as SeasonState } from './engine/season'
 import { availablePlayers, unavailableMap } from './engine/availability'
@@ -17,6 +17,7 @@ import {
 import type { Record as SeasonRecord } from './storage'
 import { Home } from './screens/Home'
 import { Season } from './screens/Season'
+import { SeasonStats } from './screens/SeasonStats'
 import { Selection } from './screens/Selection'
 import { BowlingPlan } from './screens/BowlingPlan'
 import { Sim } from './screens/Sim'
@@ -26,7 +27,7 @@ import { Result } from './screens/Result'
 import { Squad } from './screens/Squad'
 
 type Screen =
-  | 'home' | 'squad' | 'season' | 'selection' | 'plan'
+  | 'home' | 'squad' | 'season' | 'stats' | 'selection' | 'plan'
   | 'sim1' | 'break' | 'order' | 'sim2' | 'result'
 
 export default function App() {
@@ -111,12 +112,19 @@ export default function App() {
       const xiAuto = autoSelectXI(fit)
       const planAuto = autoPlan(xiAuto)
       const matchSeed = randomSeed()
-      const one = simulateFieldingInnings(club, xiAuto, planAuto, matchSeed)
-      const two = simulateBattingInnings(club, autoBattingOrder(xiAuto), one.runs + 1, matchSeed)
-      running = recordRound(running, buildMatchResult(matchSeed, club, one, two), squad)
+      const f = seasonForms(running)
+      const one = simulateFieldingInnings(club, xiAuto, planAuto, matchSeed, f)
+      const two = simulateBattingInnings(club, autoBattingOrder(xiAuto), one.runs + 1, matchSeed, f)
+      running = recordRound(running, buildMatchResult(matchSeed, club, one, two), squad, xiAuto)
     }
     persistSeason(running)
   }, [season, squad, persistSeason])
+
+  /** Tracked form for the season, or undefined in a friendly. */
+  const forms = useMemo(
+    () => (inLeague && season ? seasonForms(season) : undefined),
+    [inLeague, season],
+  )
 
   const toggle = useCallback((p: Player) => {
     setXi((prev) => {
@@ -138,21 +146,21 @@ export default function App() {
 
   const bowlFirst = useCallback(() => {
     if (!opponent) return
-    setFirst(simulateFieldingInnings(opponent, xi, plan, seed))
+    setFirst(simulateFieldingInnings(opponent, xi, plan, seed, forms))
     setScreen(prefs.instant ? 'break' : 'sim1')
-  }, [opponent, xi, plan, seed, prefs.instant])
+  }, [opponent, xi, plan, seed, forms, prefs.instant])
 
   const startChase = useCallback(() => {
     if (!opponent || !first) return
-    const innings = simulateBattingInnings(opponent, order, first.runs + 1, seed)
+    const innings = simulateBattingInnings(opponent, order, first.runs + 1, seed, forms)
     setSecond(innings)
     const built = buildMatchResult(seed, opponent, first, innings)
     setResult(built)
     setRecord((r) => recordMatch(r, built.outcome, innings.runs, opponent.name))
     // A league fixture updates the table — and plays out the rest of its round.
-    if (inLeague && season) persistSeason(recordRound(season, built, squad))
+    if (inLeague && season) persistSeason(recordRound(season, built, squad, xi))
     setScreen(prefs.instant ? 'result' : 'sim2')
-  }, [opponent, first, order, seed, inLeague, season, squad, persistSeason, prefs.instant])
+  }, [opponent, first, order, seed, forms, xi, inLeague, season, squad, persistSeason, prefs.instant])
 
   const toggleInstant = useCallback(() => {
     setPrefs((p) => {
@@ -163,7 +171,9 @@ export default function App() {
   }, [])
 
   const sortedSquad = useMemo(
-    () => [...squad].sort((a, b) => a.positions[0] - b.positions[0]),
+    () => [...squad].sort(
+      (a, b) => (0.62 * b.bat.skill + 0.38 * b.bat.pwr) - (0.62 * a.bat.skill + 0.38 * a.bat.pwr),
+    ),
     [squad],
   )
 
@@ -197,6 +207,11 @@ export default function App() {
           />
         )
 
+      case 'stats':
+        return season && (
+          <SeasonStats season={season} onBack={() => setScreen('season')} />
+        )
+
       case 'season':
         return season && (
           <Season
@@ -205,6 +220,7 @@ export default function App() {
             onToggleInstant={toggleInstant}
             onPlay={playFixture}
             onSimRest={simRestOfSeason}
+            onStats={() => setScreen('stats')}
             onAbandon={() => { persistSeason(null); setInLeague(false); setScreen('home') }}
             onBack={() => { setInLeague(false); setScreen('home') }}
           />
@@ -217,6 +233,7 @@ export default function App() {
             opponent={opponent}
             selected={xi}
             unavailable={unavailable}
+            forms={forms}
             onToggle={toggle}
             onAuto={() => {
               const picked = autoSelectXI(pickable)
@@ -272,6 +289,14 @@ export default function App() {
           <BattingOrder
             order={order}
             target={first.runs + 1}
+            didNotBowl={
+              inLeague
+                ? new Set(
+                    xi.filter((p) => !first.bowling.some((b) => b.playerId === p.id && b.balls > 0))
+                      .map((p) => p.id),
+                  )
+                : undefined
+            }
             onChange={setOrder}
             onAuto={() => setOrder(autoBattingOrder(xi))}
             onBack={() => setScreen('break')}

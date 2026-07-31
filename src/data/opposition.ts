@@ -69,23 +69,22 @@ const CLUBS: ClubSeed[] = [
 
 interface Archetype {
   skill: number; pwr: number; def: number; att: number
-  positions: [number, number]
   wk?: boolean
   bowlType?: 'pace' | 'spin'
 }
 
 const SHAPE: Archetype[] = [
-  { skill: 70, pwr: 60, def: 0, att: 0, positions: [1, 2] },
-  { skill: 65, pwr: 70, def: 0, att: 0, positions: [1, 3] },
-  { skill: 73, pwr: 63, def: 48, att: 42, positions: [3, 4], bowlType: 'spin' },
-  { skill: 69, pwr: 72, def: 0, att: 0, positions: [3, 5] },
-  { skill: 62, pwr: 77, def: 55, att: 50, positions: [4, 6], bowlType: 'pace' },
-  { skill: 63, pwr: 68, def: 67, att: 65, positions: [5, 7], bowlType: 'pace' },
-  { skill: 58, pwr: 65, def: 0, att: 0, positions: [5, 8], wk: true },
-  { skill: 52, pwr: 60, def: 72, att: 69, positions: [6, 8], bowlType: 'spin' },
-  { skill: 42, pwr: 54, def: 70, att: 78, positions: [8, 10], bowlType: 'pace' },
-  { skill: 36, pwr: 47, def: 77, att: 71, positions: [9, 11], bowlType: 'pace' },
-  { skill: 27, pwr: 42, def: 65, att: 79, positions: [10, 11], bowlType: 'pace' },
+  { skill: 70, pwr: 60, def: 0, att: 0 },
+  { skill: 65, pwr: 70, def: 0, att: 0 },
+  { skill: 73, pwr: 63, def: 48, att: 42, bowlType: 'spin' },
+  { skill: 69, pwr: 72, def: 0, att: 0 },
+  { skill: 62, pwr: 77, def: 55, att: 50, bowlType: 'pace' },
+  { skill: 63, pwr: 68, def: 67, att: 65, bowlType: 'pace' },
+  { skill: 58, pwr: 65, def: 0, att: 0, wk: true },
+  { skill: 52, pwr: 60, def: 72, att: 69, bowlType: 'spin' },
+  { skill: 42, pwr: 54, def: 70, att: 78, bowlType: 'pace' },
+  { skill: 36, pwr: 47, def: 77, att: 71, bowlType: 'pace' },
+  { skill: 27, pwr: 42, def: 65, att: 79, bowlType: 'pace' },
 ]
 
 const FIRST = [
@@ -135,7 +134,6 @@ function buildXI(club: ClubSeed): Player[] {
       id: `${club.name.replace(/\W+/g, '').toLowerCase()}-${i + 1}`,
       name,
       value,
-      positions: a.positions,
       wk: a.wk,
       bowlType: a.bowlType,
       bat,

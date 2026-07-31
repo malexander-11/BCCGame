@@ -1,4 +1,5 @@
 import type { Player } from '../data/types'
+import { formMultiplier } from './form'
 import type { Rng } from './rng'
 
 /**
@@ -54,7 +55,6 @@ export interface BatterState {
   /** Effective scoring multiplier for this innings. */
   pw: number
   form: number
-  outOfPosition: boolean
 }
 
 export interface BowlerState {
@@ -65,28 +65,32 @@ export interface BowlerState {
 }
 
 /**
- * Batting out of position costs you. A No.11 shoved up to open is technically
- * allowed, he just won't enjoy it.
+ * How well someone is going today.
+ *
+ * In a season this is his tracked form nudged by the day, so a man in nick
+ * mostly plays like it. In a friendly there's no history, so it falls back to
+ * the streaky roll and behaves exactly as it always did.
  */
-const OUT_OF_POSITION_SKILL = 0.88
-const OUT_OF_POSITION_PWR = 0.94
+function todaysForm(rng: Rng, tracked: number | undefined): number {
+  if (tracked === undefined) return rollForm(rng)
+  const day = 0.82 + rng() * 0.36     // it's still cricket
+  return formMultiplier(tracked) * day
+}
 
-export function makeBatterState(player: Player, slot: number, rng: Rng): BatterState {
-  const form = rollForm(rng)
-  const outOfPosition = slot < player.positions[0] || slot > player.positions[1]
+export function makeBatterState(player: Player, rng: Rng, tracked?: number): BatterState {
+  const form = todaysForm(rng, tracked)
   // Form swings scoring more than it swings technique.
   const skForm = 1 + (form - 1) * 0.6
   return {
     player,
     form,
-    outOfPosition,
-    sk: skillMult(player.bat.skill) * skForm * (outOfPosition ? OUT_OF_POSITION_SKILL : 1),
-    pw: pwrMult(player.bat.pwr) * form * (outOfPosition ? OUT_OF_POSITION_PWR : 1),
+    sk: skillMult(player.bat.skill) * skForm,
+    pw: pwrMult(player.bat.pwr) * form,
   }
 }
 
-export function makeBowlerState(player: Player, rng: Rng): BowlerState {
-  const form = rollForm(rng)
+export function makeBowlerState(player: Player, rng: Rng, tracked?: number): BowlerState {
+  const form = todaysForm(rng, tracked)
   return {
     player,
     form,

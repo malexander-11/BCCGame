@@ -21,8 +21,6 @@ export interface Player {
   bat: { skill: number; pwr: number }
   /** Below BOWLER_FLOOR in either rating means the player doesn't bowl. */
   bowl: { def: number; att: number }
-  /** Legal batting slots, inclusive, e.g. [1, 3] for an opener. */
-  positions: [number, number]
   /** Price in £m, spent against the selection budget. */
   value: number
   /** The club's own role label, e.g. 'Spin all-rounder'. Display only. */
@@ -77,6 +75,8 @@ export interface Dismissal {
   bowlerName?: string
   /** Catcher, keeper, or the fielder who threw. */
   fielderName?: string
+  /** Same fielder by id, so season stats don't have to match on names. */
+  fielderId?: string
   /** Rendered scorecard line, e.g. "c Harris b Nolan". */
   text: string
 }
@@ -91,8 +91,6 @@ export interface BatterCard {
   out: Dismissal | null
   /** False for players who never got in. */
   batted: boolean
-  /** True when picked outside their natural position range. */
-  outOfPosition: boolean
 }
 
 export interface BowlerCard {

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { RULES } from '../data/types'
 import type { Club, Player } from '../data/types'
 import { availableBowlers } from '../engine/ratings'
+import { formBand } from '../engine/form'
 import { theme } from '../theme'
 import {
   Eyebrow, GhostButton, Notice, PrimaryButton, ScreenHeader, StatBar, roleColour, roleOf,
@@ -28,29 +29,31 @@ export function selectionIssues(xi: Player[], keeperAvailable = true): Selection
   return issues
 }
 
-type Sort = 'order' | 'batting' | 'bowling' | 'value'
+type Sort = 'form' | 'batting' | 'bowling' | 'value'
 
 const SORTS: [Sort, string][] = [
-  ['order', 'ORDER'], ['batting', 'BAT'], ['bowling', 'BWL'], ['value', '£'],
+  ['form', 'FORM'], ['batting', 'BAT'], ['bowling', 'BWL'], ['value', '£'],
 ]
 
 const batIndex = (p: Player) => 0.62 * p.bat.skill + 0.38 * p.bat.pwr
 const bowlIndex = (p: Player) => 0.5 * p.bowl.def + 0.5 * p.bowl.att
 
 export function Selection({
-  squad, opponent, selected, unavailable, onToggle, onAuto, onBack, onNext,
+  squad, opponent, selected, unavailable, forms, onToggle, onAuto, onBack, onNext,
 }: {
   squad: Player[]
   opponent: Club
   selected: Player[]
   /** Player id → why they're missing this week. Empty outside season mode. */
   unavailable?: Map<string, string>
+  /** Tracked season form by player id. Absent in a friendly. */
+  forms?: Record<string, number>
   onToggle: (p: Player) => void
   onAuto: () => void
   onBack: () => void
   onNext: () => void
 }) {
-  const [sort, setSort] = useState<Sort>('order')
+  const [sort, setSort] = useState<Sort>('batting')
   const [pickedOnly, setPickedOnly] = useState(false)
 
   const out = unavailable ?? new Map<string, string>()
@@ -74,10 +77,12 @@ export function Selection({
       case 'batting': return then((a, b) => batIndex(b) - batIndex(a))
       case 'bowling': return then((a, b) => bowlIndex(b) - bowlIndex(a))
       case 'value': return then((a, b) => b.value - a.value)
+      case 'form':
+        return then((a, b) => (forms?.[b.id] ?? 50) - (forms?.[a.id] ?? 50) || batIndex(b) - batIndex(a))
       default:
-        return then((a, b) => a.positions[0] - b.positions[0] || batIndex(b) - batIndex(a))
+        return then((a, b) => batIndex(b) - batIndex(a))
     }
-  }, [squad, sort, pickedOnly, ids, out])
+  }, [squad, sort, pickedOnly, ids, out, forms])
 
   return (
     <div className="pt-6 pb-4 pop">
@@ -194,8 +199,19 @@ export function Selection({
                     >
                       {role}
                     </span>
+                    {forms && (
+                      <span
+                        className="disp text-[9px] font-bold px-1.5 rounded tracking-wider"
+                        style={{
+                          background: `${formBand(forms[p.id] ?? 50).colour}22`,
+                          color: formBand(forms[p.id] ?? 50).colour,
+                        }}
+                      >
+                        {formBand(forms[p.id] ?? 50).label}
+                      </span>
+                    )}
                     <span className="disp num text-[10px]" style={{ color: theme.faint }}>
-                      bats {p.positions[0]}–{p.positions[1]} · £{p.value}m
+                      £{p.value}m
                     </span>
                   </div>
                 )}

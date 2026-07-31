@@ -31,6 +31,11 @@ export interface InningsInput {
   rota: Rota
   /** Runs required to win. Null in the first innings. */
   target: number | null
+  /**
+   * Tracked season form by player id, for either side. Absent in a friendly,
+   * where the streaky per-innings roll is used instead.
+   */
+  forms?: Record<string, number>
   rng: Rng
 }
 
@@ -79,13 +84,13 @@ function phaseFor(over: number) {
 // ---------------------------------------------------------------- the innings
 
 export function simulateInnings(input: InningsInput): InningsResult {
-  const { battingOrder, fieldingXI, rota, target, rng } = input
+  const { battingOrder, fieldingXI, rota, target, rng, forms } = input
   const chasing = target !== null
 
-  const batters: BatterState[] = battingOrder.map((p, i) => makeBatterState(p, i + 1, rng))
+  const batters: BatterState[] = battingOrder.map((p) => makeBatterState(p, rng, forms?.[p.id]))
   const cards: BatterCard[] = battingOrder.map((p, i) => ({
     playerId: p.id, name: p.name, runs: 0, balls: 0, fours: 0, sixes: 0,
-    out: null, batted: i < 2, outOfPosition: batters[i].outOfPosition,
+    out: null, batted: i < 2,
   }))
 
   const bowlerStates = new Map<string, BowlerState>()
@@ -93,7 +98,7 @@ export function simulateInnings(input: InningsInput): InningsResult {
   for (const id of new Set(rota)) {
     const p = fieldingXI.find((x) => x.id === id)
     if (!p) continue
-    bowlerStates.set(id, makeBowlerState(p, rng))
+    bowlerStates.set(id, makeBowlerState(p, rng, forms?.[p.id]))
     bowlerCards.set(id, {
       playerId: id, name: p.name, balls: 0, maidens: 0,
       runs: 0, wickets: 0, wides: 0, noBalls: 0, dots: 0,
@@ -256,7 +261,7 @@ export function simulateInnings(input: InningsInput): InningsResult {
             ? bowler.player.bowlType === 'spin'
               ? `${keeper.name} misses the stumping`
               : `${keeper.name} shells one behind the stumps`
-            : `${fielderName(fieldingXI, bowler.player, keeper, kind, rng)} puts down ${card.name}`
+            : `${fielderOf(fieldingXI, bowler.player, keeper, kind, rng).name} puts down ${card.name}`
           say('drop', `DROPPED! ${grassed}`, over)
           if (gift % 2 === 1) [striker, nonStriker] = [nonStriker, striker]
           continue
@@ -374,15 +379,15 @@ export function simulateInnings(input: InningsInput): InningsResult {
 
 // ------------------------------------------------------------------- helpers
 
-function fielderName(
+function fielderOf(
   xi: Player[], bowler: Player, keeper: Player, kind: DismissalKind, rng: Rng,
-): string {
-  if (kind === 'st') return keeper.name
+): Player {
+  if (kind === 'st') return keeper
   // Roughly a fifth of catches are taken behind the stumps.
-  if (kind === 'c' && rng() < 0.2) return keeper.name
+  if (kind === 'c' && rng() < 0.2) return keeper
   const others = xi.filter((p) => p.id !== bowler.id)
-  if (others.length === 0) return keeper.name
-  return others[pickIndex(rng, others.length)].name
+  if (others.length === 0) return keeper
+  return others[pickIndex(rng, others.length)]
 }
 
 function makeDismissal(
@@ -394,30 +399,33 @@ function makeDismissal(
     case 'lbw':
       return { kind, bowlerName: bowler.name, text: `lbw b ${bowler.name}` }
     case 'c & b':
-      return { kind, bowlerName: bowler.name, fielderName: bowler.name, text: `c & b ${bowler.name}` }
+      return {
+        kind, bowlerName: bowler.name, fielderName: bowler.name, fielderId: bowler.id,
+        text: `c & b ${bowler.name}`,
+      }
     case 'st': {
       // Nobody gets stumped off a seamer. Score it as caught behind instead.
       if (bowler.bowlType !== 'spin') {
         return {
-          kind: 'c', bowlerName: bowler.name, fielderName: keeper.name,
+          kind: 'c', bowlerName: bowler.name, fielderName: keeper.name, fielderId: keeper.id,
           text: `c ${keeper.name} b ${bowler.name}`,
         }
       }
       return {
-        kind, bowlerName: bowler.name, fielderName: keeper.name,
+        kind, bowlerName: bowler.name, fielderName: keeper.name, fielderId: keeper.id,
         text: `st ${keeper.name} b ${bowler.name}`,
       }
     }
     case 'run out': {
-      const f = fielderName(xi, bowler, keeper, 'c', rng)
-      return { kind, fielderName: f, text: `run out (${f})` }
+      const f = fielderOf(xi, bowler, keeper, 'c', rng)
+      return { kind, fielderName: f.name, fielderId: f.id, text: `run out (${f.name})` }
     }
     case 'c':
     default: {
-      const f = fielderName(xi, bowler, keeper, 'c', rng)
+      const f = fielderOf(xi, bowler, keeper, 'c', rng)
       return {
-        kind: 'c', bowlerName: bowler.name, fielderName: f,
-        text: `c ${f} b ${bowler.name}`,
+        kind: 'c', bowlerName: bowler.name, fielderName: f.name, fielderId: f.id,
+        text: `c ${f.name} b ${bowler.name}`,
       }
     }
   }

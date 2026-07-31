@@ -4,6 +4,8 @@ import { DIV6_WEST } from '../data/league'
 import { simulateMatch, TEAM_NAME } from './match'
 import { initialAvailability, rollRound } from './availability'
 import type { AvailabilityState } from './availability'
+import { applyFreshAir } from './freshair'
+import { driftForm, NEUTRAL_FORM, updateForm } from './form'
 import { hashString } from './rng'
 
 /**
@@ -51,6 +53,38 @@ export interface TeamStats {
   oversAgainst: number
 }
 
+/** Everything one Bagshot player has done this season. */
+export interface PlayerSeasonStats {
+  playerId: string
+  name: string
+  matches: number
+  // batting
+  innings: number
+  runs: number
+  ballsFaced: number
+  notOuts: number
+  fours: number
+  sixes: number
+  best: number
+  fifties: number
+  hundreds: number
+  ducks: number
+  // bowling
+  ballsBowled: number
+  maidens: number
+  runsConceded: number
+  wickets: number
+  bestWickets: number
+  bestRuns: number
+  // fielding
+  catches: number
+  stumpings: number
+  runOuts: number
+  // standing
+  form: number
+  freshAirGames: number
+}
+
 export interface Season {
   seed: number
   /** Nine rounds, each five fixtures of [homeId, awayId]. */
@@ -59,7 +93,18 @@ export interface Season {
   stats: Record<string, TeamStats>
   /** Who is injured, away or sulking, and the running team-news log. */
   availability: AvailabilityState
+  /** Per-player season figures, Bagshot only. */
+  players: Record<string, PlayerSeasonStats>
 }
+
+export const emptyPlayerStats = (playerId: string, name: string): PlayerSeasonStats => ({
+  playerId, name, matches: 0,
+  innings: 0, runs: 0, ballsFaced: 0, notOuts: 0, fours: 0, sixes: 0,
+  best: 0, fifties: 0, hundreds: 0, ducks: 0,
+  ballsBowled: 0, maidens: 0, runsConceded: 0, wickets: 0, bestWickets: -1, bestRuns: 0,
+  catches: 0, stumpings: 0, runOuts: 0,
+  form: NEUTRAL_FORM, freshAirGames: 0,
+})
 
 export interface TableRow extends TeamStats {
   clubId: string
@@ -108,13 +153,23 @@ export function createSeason(seed: number, squad: Player[]): Season {
   const ids = [BAGSHOT_ID, ...DIV6_WEST.map((c) => c.id)]
   const stats: Record<string, TeamStats> = {}
   for (const id of ids) stats[id] = emptyStats()
+  const players: Record<string, PlayerSeasonStats> = {}
+  for (const p of squad) players[p.id] = emptyPlayerStats(p.id, p.name)
   return {
     seed,
     schedule: roundRobin(ids),
     results: [],
     stats,
     availability: initialAvailability(squad, seed),
+    players,
   }
+}
+
+/** Current form for everyone, in the shape the ball engine wants. */
+export function seasonForms(season: Season): Record<string, number> {
+  const forms: Record<string, number> = {}
+  for (const [id, p] of Object.entries(season.players)) forms[id] = p.form
+  return forms
 }
 
 export const totalRounds = (season: Season) => season.schedule.length
@@ -205,7 +260,90 @@ export const bagshotRow = (season: Season) =>
  * Returns a new season — the state is treated as immutable so React re-renders
  * cleanly and a half-applied round can never be persisted.
  */
-export function recordRound(season: Season, match: MatchResult, squad: Player[]): Season {
+/**
+ * Fold one Bagshot match into the per-player season figures, move everyone's
+ * form, and work out who had a fresh air game.
+ */
+function applyPlayerStats(
+  players: Record<string, PlayerSeasonStats>,
+  squad: Player[], xi: Player[],
+  bowlingInnings: InningsResult, battingInnings: InningsResult,
+): { players: Record<string, PlayerSeasonStats>; freshAir: string[] } {
+  const next: Record<string, PlayerSeasonStats> = {}
+  for (const [id, v] of Object.entries(players)) next[id] = { ...v }
+  for (const p of squad) next[p.id] ??= emptyPlayerStats(p.id, p.name)
+
+  const inXI = new Set(xi.map((p) => p.id))
+  const batting = new Map(battingInnings.batting.map((b) => [b.playerId, b]))
+  const bowling = new Map(bowlingInnings.bowling.map((b) => [b.playerId, b]))
+
+  // Catches, stumpings and run outs, from the innings Bagshot fielded in.
+  for (const b of bowlingInnings.batting) {
+    const id = b.out?.fielderId
+    if (!id || !next[id]) continue
+    if (b.out!.kind === 'st') next[id].stumpings++
+    else if (b.out!.kind === 'run out') next[id].runOuts++
+    else next[id].catches++
+  }
+
+  const freshAir: string[] = []
+
+  for (const p of squad) {
+    const st = next[p.id]
+    if (!inXI.has(p.id)) {
+      st.form = driftForm(st.form)
+      continue
+    }
+    st.matches++
+
+    const bat = batting.get(p.id)
+    const bowl = bowling.get(p.id)
+
+    if (bat && bat.balls > 0) {
+      st.innings++
+      st.runs += bat.runs
+      st.ballsFaced += bat.balls
+      st.fours += bat.fours
+      st.sixes += bat.sixes
+      if (!bat.out) st.notOuts++
+      if (bat.runs > st.best) st.best = bat.runs
+      if (bat.runs >= 100) st.hundreds++
+      else if (bat.runs >= 50) st.fifties++
+      if (bat.runs === 0 && bat.out) st.ducks++
+    }
+
+    if (bowl && bowl.balls > 0) {
+      st.ballsBowled += bowl.balls
+      st.maidens += bowl.maidens
+      st.runsConceded += bowl.runs
+      st.wickets += bowl.wickets
+      // Best figures: most wickets, then fewest runs.
+      if (bowl.wickets > st.bestWickets ||
+          (bowl.wickets === st.bestWickets && bowl.runs < st.bestRuns)) {
+        st.bestWickets = bowl.wickets
+        st.bestRuns = bowl.runs
+      }
+    }
+
+    const facedNothing = !bat || bat.balls === 0
+    const bowledNothing = !bowl || bowl.balls === 0
+    if (facedNothing && bowledNothing) {
+      st.freshAirGames++
+      freshAir.push(p.id)
+      // Doing nothing tells you nothing about how he's playing, so form only
+      // drifts — the punishment is the fallout, not a form hit as well.
+      st.form = driftForm(st.form)
+    } else {
+      st.form = updateForm(st.form, p, bat, bowl)
+    }
+  }
+
+  return { players: next, freshAir }
+}
+
+export function recordRound(
+  season: Season, match: MatchResult, squad: Player[], xi?: Player[],
+): Season {
   const fixture = nextFixture(season)
   if (!fixture) return season
 
@@ -245,14 +383,34 @@ export function recordRound(season: Season, match: MatchResult, squad: Player[])
   }
 
   const results = [...season.results, result]
+
+  // Per-player figures, form, and who did nothing at all.
+  const playedXI = xi ?? []
+  const { players, freshAir } = playedXI.length
+    ? applyPlayerStats(season.players, squad, playedXI, match.first, match.second)
+    : { players: season.players, freshAir: [] as string[] }
+
   // Roll next week's team news now, so the season screen can show it before you
   // commit to playing. Nothing to roll once the season is over.
   const nextRound = results.length + 1
-  const availability = nextRound <= season.schedule.length
+  let availability = nextRound <= season.schedule.length
     ? rollRound(season.availability, squad, nextRound, season.seed)
     : season.availability
 
-  return { ...season, stats, results, availability }
+  // Anyone who had a fresh air game may walk out — applied after the roll so
+  // his absence lands in next week's team news alongside everything else.
+  if (freshAir.length > 0 && nextRound <= season.schedule.length) {
+    const priors: Record<string, number> = {}
+    for (const id of freshAir) {
+      // The count already includes today's, so look at what came before it.
+      priors[id] = Math.max(0, (players[id]?.freshAirGames ?? 1) - 1)
+    }
+    availability = applyFreshAir(
+      availability, squad, playedXI, match.first, match.second, priors, nextRound, season.seed,
+    ).availability
+  }
+
+  return { ...season, stats, results, availability, players }
 }
 
 export const seasonComplete = (season: Season) =>

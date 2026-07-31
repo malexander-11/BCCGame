@@ -26,6 +26,7 @@ const secondRng = (seed: number) => makeRng((seed ^ 0x9e3779b9) >>> 0)
 
 export function simulateFieldingInnings(
   opponent: Club, bagshotXI: Player[], plan: BowlingPlan, seed: number,
+  forms?: Record<string, number>,
 ): InningsResult {
   const rng = firstRng(seed)
   return simulateInnings({
@@ -35,12 +36,14 @@ export function simulateFieldingInnings(
     fieldingXI: bagshotXI,
     rota: buildRota(plan, rng),
     target: null,
+    forms,
     rng,
   })
 }
 
 export function simulateBattingInnings(
   opponent: Club, bagshotOrder: Player[], target: number, seed: number,
+  forms?: Record<string, number>,
 ): InningsResult {
   const rng = secondRng(seed)
   return simulateInnings({
@@ -50,6 +53,7 @@ export function simulateBattingInnings(
     fieldingXI: opponent.xi,
     rota: buildRota(autoPlan(opponent.xi), rng),
     target,
+    forms,
     rng,
   })
 }

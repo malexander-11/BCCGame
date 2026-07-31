@@ -29,13 +29,14 @@ const NEWS_LABEL: Record<EventKind, string> = {
 }
 
 export function Season({
-  season, instant, onToggleInstant, onPlay, onSimRest, onAbandon, onBack,
+  season, instant, onToggleInstant, onPlay, onSimRest, onStats, onAbandon, onBack,
 }: {
   season: SeasonState
   instant: boolean
   onToggleInstant: () => void
   onPlay: () => void
   onSimRest: () => void
+  onStats: () => void
   onAbandon: () => void
   onBack: () => void
 }) {
@@ -138,8 +139,9 @@ export function Season({
       )}
 
       <div className="flex gap-2 mb-3">
+        <GhostButton onClick={onStats} className="flex-1 text-center">STATS</GhostButton>
         <GhostButton onClick={onToggleInstant} active={instant} className="flex-1 text-center">
-          {instant ? 'INSTANT RESULTS ON' : 'INSTANT RESULTS OFF'}
+          {instant ? 'INSTANT ON' : 'INSTANT OFF'}
         </GhostButton>
         {!done && (
           <GhostButton onClick={onSimRest} className="!px-3">SIM REST</GhostButton>

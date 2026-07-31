@@ -20,7 +20,6 @@ function blankPlayer(n: number): Player {
     value: 1,
     bat: { skill: 60, pwr: 60 },
     bowl: { def: 0, att: 0 },
-    positions: [1, 11],
   }
 }
 
@@ -58,7 +57,6 @@ export function Squad({
         const p = raw as Partial<Player> & Record<string, unknown>
         const num = (v: unknown, fallback = 0) =>
           typeof v === 'number' && Number.isFinite(v) ? Math.round(Math.max(0, Math.min(100, v))) : fallback
-        const pos = Array.isArray(p.positions) ? p.positions : [1, 11]
         return {
           id: typeof p.id === 'string' ? p.id : `import-${i + 1}`,
           name: typeof p.name === 'string' && p.name.trim() ? p.name.trim() : `Player ${i + 1}`,
@@ -66,10 +64,6 @@ export function Squad({
           role: typeof p.role === 'string' ? p.role : undefined,
           bat: { skill: num(p.bat?.skill, 60), pwr: num(p.bat?.pwr, 60) },
           bowl: { def: num(p.bowl?.def), att: num(p.bowl?.att) },
-          positions: [
-            Math.max(1, Math.min(11, Number(pos[0]) || 1)),
-            Math.max(1, Math.min(11, Number(pos[1]) || 11)),
-          ],
           wk: p.wk === true,
           bowlType: p.bowlType === 'spin' ? 'spin' : p.bowlType === 'pace' ? 'pace' : undefined,
         }
@@ -146,7 +140,7 @@ export function Squad({
                       {role}
                     </span>
                     <span className="disp num text-[10px]" style={{ color: theme.faint }}>
-                      {p.bat.skill}/{p.bat.pwr} · {p.bowl.def}/{p.bowl.att} · bats {p.positions[0]}–{p.positions[1]} · £{p.value}m
+                      {p.bat.skill}/{p.bat.pwr} · {p.bowl.def}/{p.bowl.att} · £{p.value}m
                     </span>
                   </div>
                 </div>
@@ -184,8 +178,8 @@ export function Squad({
                     ))}
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2 mb-2">
-                    <label className="block">
+                  <div className="mb-2">
+                    <label className="block w-1/3">
                       <div className="disp text-[9px] tracking-widest mb-1" style={{ color: theme.faint }}>
                         VALUE £m
                       </div>
@@ -199,28 +193,6 @@ export function Squad({
                         style={{ background: theme.bg, border: `1px solid ${theme.border}`, color: theme.cream }}
                       />
                     </label>
-                    {([0, 1] as const).map((idx) => (
-                      <label key={idx} className="block">
-                        <div className="disp text-[9px] tracking-widest mb-1" style={{ color: theme.faint }}>
-                          {idx === 0 ? 'BATS FROM' : 'BATS TO'}
-                        </div>
-                        <input
-                          type="number"
-                          min={1}
-                          max={11}
-                          value={p.positions[idx]}
-                          onChange={(e) => {
-                            const v = Math.max(1, Math.min(11, Number(e.target.value) || 1))
-                            const positions: [number, number] = [...p.positions] as [number, number]
-                            positions[idx] = v
-                            if (positions[0] > positions[1]) positions[idx === 0 ? 1 : 0] = v
-                            update(p.id, { ...p, positions })
-                          }}
-                          className="disp num w-full rounded-lg px-2 py-1.5 text-[14px] font-bold"
-                          style={{ background: theme.bg, border: `1px solid ${theme.border}`, color: theme.cream }}
-                        />
-                      </label>
-                    ))}
                   </div>
 
                   <div className="flex gap-2">
@@ -280,7 +252,7 @@ export function Squad({
             onChange={(e) => setText(e.target.value)}
             rows={9}
             spellCheck={false}
-            placeholder='[{ "id": "1", "name": "…", "bat": { "skill": 70, "pwr": 65 }, "bowl": { "def": 0, "att": 0 }, "positions": [1, 3] }]'
+            placeholder='[{ "id": "1", "name": "…", "bat": { "skill": 70, "pwr": 65 }, "bowl": { "def": 0, "att": 0 }, "value": 3 }]'
             className="w-full rounded-lg px-3 py-2 text-[11px] font-mono"
             style={{ background: theme.bg, border: `1px solid ${theme.border}`, color: theme.cream }}
           />

@@ -11,10 +11,12 @@ import {
  * — no drag handles to miss.
  */
 export function BattingOrder({
-  order, target, onChange, onAuto, onBack, onNext,
+  order, target, didNotBowl, onChange, onAuto, onBack, onNext,
 }: {
   order: Player[]
   target: number
+  /** Ids of the XI who didn't get a bowl — fresh air candidates. */
+  didNotBowl?: Set<string>
   onChange: (order: Player[]) => void
   onAuto: () => void
   onBack: () => void
@@ -33,10 +35,11 @@ export function BattingOrder({
     setHeld(null)
   }
 
-  const outOfPosition = order.filter((p, i) => {
-    const slot = i + 1
-    return slot < p.positions[0] || slot > p.positions[1]
-  }).length
+  // Anyone batting low who never got a bowl is one short chase away from
+  // having done nothing all day — and walking out on the club over it.
+  const atRisk = didNotBowl
+    ? order.filter((p, i) => i + 1 >= 8 && didNotBowl.has(p.id))
+    : []
 
   return (
     <div className="pt-6 pb-4 pop">
@@ -67,7 +70,7 @@ export function BattingOrder({
       <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${theme.border}` }}>
         {order.map((p, i) => {
           const slot = i + 1
-          const oop = slot < p.positions[0] || slot > p.positions[1]
+          const risky = (didNotBowl?.has(p.id) ?? false) && slot >= 8
           const selected = held === i
           const role = roleOf(p)
           return (
@@ -107,9 +110,9 @@ export function BattingOrder({
                   </span>
                   <span
                     className="disp text-[10px]"
-                    style={{ color: oop ? theme.red : theme.faint }}
+                    style={{ color: risky ? theme.red : theme.faint }}
                   >
-                    bats {p.positions[0]}–{p.positions[1]}{oop ? ' · out of position' : ''}
+                    {risky ? "didn't bowl · fresh air risk" : roleOf(p) === 'BOWL' ? 'bowler' : 'batter'}
                   </span>
                 </div>
               </div>
@@ -124,13 +127,17 @@ export function BattingOrder({
       </div>
 
       <div className="text-[11px] leading-relaxed mt-3 px-1" style={{ color: theme.muted }}>
-        {outOfPosition > 0 ? (
+        {atRisk.length > 0 ? (
           <>
-            <span style={{ color: theme.red }}>{outOfPosition} out of position.</span>{' '}
-            They can still bat there, they just won't be as good at it.
+            <span style={{ color: theme.red }}>
+              {atRisk.map((p) => p.name).join(', ')} {atRisk.length === 1 ? "hasn't" : "haven't"} bowled.
+            </span>{' '}
+            Batting {atRisk.length === 1 ? 'him' : 'them'} this low means{' '}
+            {atRisk.length === 1 ? 'he' : 'they'} may not get a bat either — and a player who does
+            neither has had a fresh air game. Some of them walk out over it.
           </>
         ) : (
-          <>Everyone is batting where they bat. Early wickets cost you the chase, so protect the top order.</>
+          <>Bat anyone anywhere. Early wickets cost you the chase, so protect the top order.</>
         )}
       </div>
 
