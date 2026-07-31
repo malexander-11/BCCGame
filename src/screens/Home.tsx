@@ -21,12 +21,13 @@ const STATS: [string, string, string][] = [
 ]
 
 export function Home({
-  record, onStart, onSquad, usingPlaceholders,
+  record, onStart, onSquad, squadSize, squadValue,
 }: {
   record: Record
   onStart: (opponent: Club) => void
   onSquad: () => void
-  usingPlaceholders: boolean
+  squadSize: number
+  squadValue: number
 }) {
   const [tier, setTier] = useState<Tier>('derby')
   const [club, setClub] = useState<Club | null>(null)
@@ -37,22 +38,25 @@ export function Home({
     <div className="pt-8 pb-4 pop">
       <Brand />
 
-      {usingPlaceholders && (
-        <button onClick={onSquad} className="block w-full mt-5 text-left">
-          <div
-            className="rounded-xl px-4 py-3"
-            style={{ background: 'rgba(233,185,73,.10)', border: `1px solid ${theme.gold}55` }}
-          >
-            <div className="disp tracking-[0.2em] text-[10px] font-bold" style={{ color: theme.gold }}>
-              PLACEHOLDER SQUAD
+      <button onClick={onSquad} className="block w-full mt-5 text-left">
+        <div
+          className="rounded-xl px-4 py-2.5 flex items-center justify-between"
+          style={{ background: theme.surface, border: `1px solid ${theme.border}` }}
+        >
+          <div>
+            <div className="disp tracking-[0.2em] text-[10px] font-bold" style={{ color: theme.pitch }}>
+              THE SQUAD
             </div>
-            <div className="text-[12px] mt-1 leading-snug" style={{ color: theme.cream }}>
-              You're playing with invented players. Tap here to enter the real Bagshot squad
-              and their SKILL, PWR, DEF and ATT ratings.
+            <div className="disp num text-[15px] font-bold mt-0.5">
+              {squadSize} available
+              <span className="text-[12px] font-normal ml-2" style={{ color: theme.muted }}>
+                £{squadValue.toFixed(1)}m on the books
+              </span>
             </div>
           </div>
-        </button>
-      )}
+          <span className="disp text-[13px]" style={{ color: theme.faint }}>▸</span>
+        </div>
+      </button>
 
       {record.played > 0 && (
         <Card className="mt-5 px-4 py-3">

@@ -103,6 +103,25 @@ export function playerQuality(p: Player): number {
   return Math.max(bat, bowl * 0.98)
 }
 
+/**
+ * Below this in either bowling rating and the player is not a bowler — he's a
+ * batter with a token number against his name. Real squads mark a non-bowler
+ * as 1 rather than 0, so a bare `> 0` test would put keepers and specialist
+ * batters into the attack.
+ */
+export const BOWLER_FLOOR = 20
+
 export function isBowler(p: Player): boolean {
-  return p.bowl.def > 0 && p.bowl.att > 0
+  return p.bowl.def >= BOWLER_FLOOR && p.bowl.att >= BOWLER_FLOOR
+}
+
+/** Whoever has the gloves: the first designated keeper in the XI. */
+export function keeperOf(xi: Player[]): Player | undefined {
+  return xi.find((p) => p.wk)
+}
+
+/** The bowlers you can actually call on — the keeper is otherwise engaged. */
+export function availableBowlers(xi: Player[]): Player[] {
+  const keeper = keeperOf(xi)
+  return xi.filter((p) => isBowler(p) && p.id !== keeper?.id)
 }

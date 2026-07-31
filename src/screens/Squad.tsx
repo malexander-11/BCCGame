@@ -17,6 +17,7 @@ function blankPlayer(n: number): Player {
   return {
     id: `custom-${Date.now()}-${n}`,
     name: 'New player',
+    value: 1,
     bat: { skill: 60, pwr: 60 },
     bowl: { def: 0, att: 0 },
     positions: [1, 11],
@@ -61,6 +62,8 @@ export function Squad({
         return {
           id: typeof p.id === 'string' ? p.id : `import-${i + 1}`,
           name: typeof p.name === 'string' && p.name.trim() ? p.name.trim() : `Player ${i + 1}`,
+          value: typeof p.value === 'number' && Number.isFinite(p.value) ? p.value : 0,
+          role: typeof p.role === 'string' ? p.role : undefined,
           bat: { skill: num(p.bat?.skill, 60), pwr: num(p.bat?.pwr, 60) },
           bowl: { def: num(p.bowl?.def), att: num(p.bowl?.att) },
           positions: [
@@ -143,7 +146,7 @@ export function Squad({
                       {role}
                     </span>
                     <span className="disp num text-[10px]" style={{ color: theme.faint }}>
-                      {p.bat.skill}/{p.bat.pwr} · {p.bowl.def}/{p.bowl.att} · bats {p.positions[0]}–{p.positions[1]}
+                      {p.bat.skill}/{p.bat.pwr} · {p.bowl.def}/{p.bowl.att} · bats {p.positions[0]}–{p.positions[1]} · £{p.value}m
                     </span>
                   </div>
                 </div>
@@ -181,7 +184,21 @@ export function Squad({
                     ))}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 mb-2">
+                  <div className="grid grid-cols-3 gap-2 mb-2">
+                    <label className="block">
+                      <div className="disp text-[9px] tracking-widest mb-1" style={{ color: theme.faint }}>
+                        VALUE £m
+                      </div>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.1}
+                        value={p.value}
+                        onChange={(e) => update(p.id, { ...p, value: Math.max(0, Number(e.target.value) || 0) })}
+                        className="disp num w-full rounded-lg px-2 py-1.5 text-[14px] font-bold"
+                        style={{ background: theme.bg, border: `1px solid ${theme.border}`, color: theme.cream }}
+                      />
+                    </label>
                     {([0, 1] as const).map((idx) => (
                       <label key={idx} className="block">
                         <div className="disp text-[9px] tracking-widest mb-1" style={{ color: theme.faint }}>

@@ -208,7 +208,8 @@ export default function App() {
         return (
           <Home
             record={record}
-            usingPlaceholders={!custom}
+            squadSize={squad.length}
+            squadValue={squad.reduce((sum, p) => sum + p.value, 0)}
             onStart={startMatch}
             onSquad={() => setScreen('squad')}
           />

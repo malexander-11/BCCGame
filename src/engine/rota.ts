@@ -1,6 +1,6 @@
 import { RULES } from '../data/types'
 import type { BowlingPlan, Player, Rota, SpellPref } from '../data/types'
-import { clamp } from './ratings'
+import { availableBowlers, clamp, isBowler, keeperOf } from './ratings'
 import type { Rng } from './rng'
 
 /**
@@ -56,6 +56,7 @@ export function validatePlan(plan: BowlingPlan, xi: Player[]): PlanProblem[] {
       message: `No more than ${RULES.maxBowlers} bowlers — you have ${used.length}.`,
     })
   }
+  const keeper = keeperOf(xi)
   for (const a of used) {
     const p = xi.find((x) => x.id === a.playerId)
     if (!p) {
@@ -68,8 +69,10 @@ export function validatePlan(plan: BowlingPlan, xi: Player[]): PlanProblem[] {
         message: `${p.name} has ${a.overs} overs — the cap is ${RULES.maxOversPerBowler}.`,
       })
     }
-    if (p.bowl.def <= 0 || p.bowl.att <= 0) {
+    if (!isBowler(p)) {
       problems.push({ code: 'not-a-bowler', message: `${p.name} doesn't bowl.` })
+    } else if (p.id === keeper?.id) {
+      problems.push({ code: 'not-a-bowler', message: `${p.name} is keeping wicket.` })
     }
   }
   return problems
@@ -160,8 +163,7 @@ export function buildRota(plan: BowlingPlan, rng: Rng): Rota {
  * for the death.
  */
 export function autoPlan(xi: Player[]): BowlingPlan {
-  const bowlers = xi
-    .filter((p) => p.bowl.def > 0 && p.bowl.att > 0)
+  const bowlers = availableBowlers(xi)
     .sort((a, b) => (b.bowl.def + b.bowl.att) - (a.bowl.def + a.bowl.att))
     .slice(0, RULES.maxBowlers)
 

@@ -72,35 +72,41 @@ Rough guide for a Surrey Championship side:
 
 ---
 
-## Entering the real squad
+## The squad
 
-The game ships with **placeholder players** so it runs out of the box. There are
-two ways to replace them.
-
-**In the app** — tap *Manage Squad*. Edit names, ratings and batting positions
-inline; it saves to the browser and overrides the file. *Export* copies the
-squad as JSON, *Import* pastes one back.
-
-**In the code** — edit [`src/data/squad.ts`](src/data/squad.ts):
+The real 42-man Bagshot squad is in [`src/data/squad.ts`](src/data/squad.ts):
 
 ```ts
 {
-  id: 'p01',
-  name: 'Sam Opener',
-  positions: [1, 2],                    // legal batting slots, inclusive
-  bat:  { skill: 74, pwr: 62 },
-  bowl: { def: 0, att: 0 },             // both 0 = doesn't bowl
-  wk: true,                             // optional, wicketkeeper
-  bowlType: 'pace',                     // optional, 'pace' | 'spin'
+  id: 'alex-dunnage',
+  name: 'Alex Dunnage',
+  value: 1.5,                             // £m — displayed, not spent
+  role: 'Spin all-rounder',               // the club's own label
+  positions: [3, 6],                      // legal batting slots, inclusive
+  bowlType: 'spin',
+  bat:  { skill: 79, pwr: 93 },
+  bowl: { def: 81, att: 76 },
 }
 ```
 
-Any number of players is fine as long as there are at least 11. `positions` is
-advisory — you can bat someone outside his range, he just won't be as good at
-it, and the scorecard flags him `OOP`.
+Two fields aren't in the source table and were derived:
 
-A squad saved in the browser wins over the file. *Reset to placeholder squad*
-clears it.
+- **`positions`** — from each player's role and batting quality. Treat it as a
+  first cut. Batting someone outside his range is allowed, it just costs him a
+  little, and the scorecard flags him `OOP`.
+- **`bowlType`** — `spin` for the spin roles, `pace` otherwise.
+
+A rating **below 20 in either DEF or ATT means the player doesn't bowl**, so the
+1s against the specialist batters keep them out of the attack. Whoever is
+keeping wicket can't bowl either — which matters for Michael Davis, the one
+keeper with real bowling ratings.
+
+`value` is shown on the team sheet but **doesn't constrain selection**; there's
+no budget cap, so pick whoever you like.
+
+Ratings can also be edited in-app under *Manage Squad*, which saves to the
+browser and overrides the file, with JSON import and export. That's per-device,
+though — to change the squad for everyone, edit the file and push.
 
 ---
 
@@ -132,6 +138,21 @@ names generated from a hash of the club name, so a given opponent always fields
 the same XI. No real cricketer is depicted. This is an unofficial fan-made
 game with no affiliation to any club, league or player.
 
+The tiers are tuned against Bagshot's actual best XI, which is a strong side by
+the game's own scale (BAT 83, BWL 86, against a league average of 60):
+
+| Tier | Bagshot win rate |
+|---|--:|
+| Local derby | 96% |
+| Mid-table | 92% |
+| Promotion push | 66% |
+| Premier Division | 45% |
+
+So the local games are a run-out and the Premier sides will beat you more often
+than not. Mid-table is deliberately left at par — it's the anchor the engine's
+absolute calibration is measured against, so moving it would move the
+goalposts.
+
 ---
 
 ## The engine
@@ -156,12 +177,15 @@ roughly a third turn up with nothing, one in six is unplayable that day.
 looks like 45-over club cricket rather than a video game. Current numbers:
 
 ```
-median first innings   215        run rate            4.94
-10th / 90th pct        153 / 264  wickets lost        7.35
-all-out rate           32.6%      extras             11.6
-ducks per innings      0.79       fifties per innings 1.19
-mean top score         72.3       hundreds/innings    0.18
+median first innings   219        run rate            4.99
+10th / 90th pct        155 / 266  wickets lost        7.28
+all-out rate           32.1%      extras             11.7
+ducks per innings      0.84       fifties per innings 1.19
+mean top score         72.1       hundreds/innings    0.17
 ```
+
+These are measured **par club against par club**, never against Bagshot — so
+editing the squad can't move the calibration.
 
 It also checks that better ratings win more often, that no bowler exceeds nine
 overs or bowls consecutively, and that runs, wickets and balls reconcile

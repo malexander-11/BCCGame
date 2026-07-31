@@ -1,7 +1,7 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { RULES } from '../data/types'
 import type { Club, Player } from '../data/types'
-import { isBowler } from '../engine/ratings'
+import { availableBowlers } from '../engine/ratings'
 import { theme } from '../theme'
 import {
   Eyebrow, GhostButton, Notice, PrimaryButton, ScreenHeader, StatBar, roleColour, roleOf,
@@ -17,12 +17,22 @@ export function selectionIssues(xi: Player[]): SelectionIssue[] {
   if (!xi.some((p) => p.wk)) {
     issues.push({ message: 'No wicketkeeper in the side.' })
   }
-  const bowlers = xi.filter(isBowler).length
+  // The keeper doesn't bowl, so he doesn't count towards the attack.
+  const bowlers = availableBowlers(xi).length
   if (bowlers < RULES.minBowlers) {
     issues.push({ message: `Only ${bowlers} can bowl — you need ${RULES.minBowlers} to get through 45 overs.` })
   }
   return issues
 }
+
+type Sort = 'order' | 'batting' | 'bowling' | 'value'
+
+const SORTS: [Sort, string][] = [
+  ['order', 'ORDER'], ['batting', 'BAT'], ['bowling', 'BWL'], ['value', '£'],
+]
+
+const batIndex = (p: Player) => 0.62 * p.bat.skill + 0.38 * p.bat.pwr
+const bowlIndex = (p: Player) => 0.5 * p.bowl.def + 0.5 * p.bowl.att
 
 export function Selection({
   squad, opponent, selected, onToggle, onAuto, onBack, onNext,
@@ -35,10 +45,24 @@ export function Selection({
   onBack: () => void
   onNext: () => void
 }) {
+  const [sort, setSort] = useState<Sort>('order')
+  const [pickedOnly, setPickedOnly] = useState(false)
+
   const ids = useMemo(() => new Set(selected.map((p) => p.id)), [selected])
   const issues = selectionIssues(selected)
-  const bowlers = selected.filter(isBowler).length
+  const bowlers = availableBowlers(selected).length
   const keeper = selected.some((p) => p.wk)
+
+  const listed = useMemo(() => {
+    const rows = pickedOnly ? squad.filter((p) => ids.has(p.id)) : [...squad]
+    switch (sort) {
+      case 'batting': return rows.sort((a, b) => batIndex(b) - batIndex(a))
+      case 'bowling': return rows.sort((a, b) => bowlIndex(b) - bowlIndex(a))
+      case 'value': return rows.sort((a, b) => b.value - a.value)
+      default:
+        return rows.sort((a, b) => a.positions[0] - b.positions[0] || batIndex(b) - batIndex(a))
+    }
+  }, [squad, sort, pickedOnly, ids])
 
   return (
     <div className="pt-6 pb-4 pop">
@@ -73,9 +97,34 @@ export function Selection({
         <GhostButton onClick={onAuto} className="!px-4">AUTO</GhostButton>
       </div>
 
-      <Eyebrow>SQUAD</Eyebrow>
+      <div className="flex gap-1.5 mb-3">
+        {SORTS.map(([s, label]) => (
+          <GhostButton
+            key={s}
+            active={sort === s && !pickedOnly}
+            onClick={() => { setSort(s); setPickedOnly(false) }}
+            className="flex-1 !px-1 text-center"
+          >
+            {label}
+          </GhostButton>
+        ))}
+        <GhostButton
+          active={pickedOnly}
+          onClick={() => setPickedOnly((v) => !v)}
+          className="!px-3"
+        >
+          PICKED
+        </GhostButton>
+      </div>
+
+      <Eyebrow>{pickedOnly ? 'YOUR XI' : `SQUAD · ${squad.length} AVAILABLE`}</Eyebrow>
       <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${theme.border}` }}>
-        {squad.map((p, i) => {
+        {listed.length === 0 && (
+          <div className="px-3 py-4 text-[12px] text-center" style={{ color: theme.faint }}>
+            Nobody picked yet.
+          </div>
+        )}
+        {listed.map((p, i) => {
           const on = ids.has(p.id)
           const role = roleOf(p)
           return (
@@ -85,7 +134,7 @@ export function Selection({
               className="w-full text-left px-3 py-2.5 flex items-center gap-2 active:scale-[0.995] transition-all"
               style={{
                 background: on ? 'rgba(233,185,73,.10)' : i % 2 ? 'rgba(255,255,255,.02)' : 'transparent',
-                borderBottom: i < squad.length - 1 ? `1px solid ${theme.border}66` : 'none',
+                borderBottom: i < listed.length - 1 ? `1px solid ${theme.border}66` : 'none',
               }}
             >
               <div
@@ -110,8 +159,8 @@ export function Selection({
                   >
                     {role}
                   </span>
-                  <span className="disp text-[10px]" style={{ color: theme.faint }}>
-                    {p.positions[0]}–{p.positions[1]}
+                  <span className="disp num text-[10px]" style={{ color: theme.faint }}>
+                    bats {p.positions[0]}–{p.positions[1]} · £{p.value}m
                   </span>
                 </div>
               </div>

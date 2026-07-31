@@ -1,7 +1,10 @@
 import type { Player } from './data/types'
 import { BAGSHOT_SQUAD } from './data/squad'
 
-const SQUAD_KEY = 'bcc.squad.v1'
+// v2: the placeholder squad was replaced by the real one, and players gained a
+// `value`. Bumping the key retires any saved v1 squad rather than letting stale
+// placeholder players shadow the real squad.
+const SQUAD_KEY = 'bcc.squad.v2'
 const RECORD_KEY = 'bcc.record.v1'
 
 export interface Record {
@@ -36,7 +39,7 @@ export function loadSquad(): Player[] {
     if (!raw) return BAGSHOT_SQUAD
     const parsed: unknown = JSON.parse(raw)
     if (Array.isArray(parsed) && parsed.length >= 11 && parsed.every(looksLikePlayer)) {
-      return parsed
+      return parsed.map((p) => ({ ...p, value: typeof p.value === 'number' ? p.value : 0 }))
     }
   } catch { /* fall through */ }
   return BAGSHOT_SQUAD

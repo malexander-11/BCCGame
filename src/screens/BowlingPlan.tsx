@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { RULES } from '../data/types'
 import type { BowlerAllocation, BowlingPlan as Plan, Club, Player, SpellPref } from '../data/types'
 import { validatePlan } from '../engine/rota'
-import { isBowler } from '../engine/ratings'
+import { availableBowlers } from '../engine/ratings'
 import { theme } from '../theme'
 import { Eyebrow, GhostButton, Notice, PrimaryButton, ScreenHeader, StatBar } from '../components/ui'
 
@@ -23,7 +23,7 @@ export function BowlingPlan({
   onBack: () => void
   onNext: () => void
 }) {
-  const bowlers = useMemo(() => xi.filter(isBowler), [xi])
+  const bowlers = useMemo(() => availableBowlers(xi), [xi])
   const byId = useMemo(() => new Map(plan.map((a) => [a.playerId, a])), [plan])
   const allocated = plan.reduce((s, a) => s + a.overs, 0)
   const remaining = RULES.overs - allocated

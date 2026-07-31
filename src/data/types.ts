@@ -19,10 +19,14 @@ export interface Player {
   id: string
   name: string
   bat: { skill: number; pwr: number }
-  /** Both 0 for a pure batter who never bowls. */
+  /** Below BOWLER_FLOOR in either rating means the player doesn't bowl. */
   bowl: { def: number; att: number }
   /** Legal batting slots, inclusive, e.g. [1, 3] for an opener. */
   positions: [number, number]
+  /** Price in £m, spent against the selection budget. */
+  value: number
+  /** The club's own role label, e.g. 'Spin all-rounder'. Display only. */
+  role?: string
   wk?: boolean
   bowlType?: BowlType
 }

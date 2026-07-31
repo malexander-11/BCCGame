@@ -47,19 +47,19 @@ const CLUBS: ClubSeed[] = [
   { name: 'Chessington', tier: 'midtable', strength: 0.97 },
   { name: 'Horley', tier: 'midtable', strength: 0.99 },
 
-  { name: 'Esher', tier: 'promotion', strength: 1.08 },
-  { name: 'Sunbury', tier: 'promotion', strength: 1.06 },
-  { name: 'Ashtead', tier: 'promotion', strength: 1.09 },
-  { name: 'Purley', tier: 'promotion', strength: 1.05 },
-  { name: 'Malden Wanderers', tier: 'promotion', strength: 1.07 },
-  { name: 'Worcester Park', tier: 'promotion', strength: 1.04 },
+  { name: 'Esher', tier: 'promotion', strength: 1.26 },
+  { name: 'Sunbury', tier: 'promotion', strength: 1.21 },
+  { name: 'Ashtead', tier: 'promotion', strength: 1.27 },
+  { name: 'Purley', tier: 'promotion', strength: 1.19 },
+  { name: 'Malden Wanderers', tier: 'promotion', strength: 1.24 },
+  { name: 'Worcester Park', tier: 'promotion', strength: 1.18 },
 
-  { name: 'Sutton', tier: 'premier', strength: 1.12 },
-  { name: 'Spencer', tier: 'premier', strength: 1.11 },
-  { name: 'East Molesey', tier: 'premier', strength: 1.13 },
-  { name: 'Banstead', tier: 'premier', strength: 1.14 },
-  { name: 'Reigate Priory', tier: 'premier', strength: 1.16 },
-  { name: 'Wimbledon', tier: 'premier', strength: 1.17 },
+  { name: 'Sutton', tier: 'premier', strength: 1.32 },
+  { name: 'Spencer', tier: 'premier', strength: 1.31 },
+  { name: 'East Molesey', tier: 'premier', strength: 1.34 },
+  { name: 'Banstead', tier: 'premier', strength: 1.36 },
+  { name: 'Reigate Priory', tier: 'premier', strength: 1.39 },
+  { name: 'Wimbledon', tier: 'premier', strength: 1.42 },
 ]
 
 // ------------------------------------------------------------------ XI shape
@@ -124,14 +124,22 @@ function buildXI(club: ClubSeed): Player[] {
     const jit = () => (rng() - 0.5) * 8
     const rate = (base: number) => (base <= 0 ? 0 : Math.round(clamp(base + offset + jit(), 10, 97)))
 
+    const bat = { skill: rate(a.skill), pwr: rate(a.pwr) }
+    const bowl = { def: rate(a.def), att: rate(a.att) }
+
+    // Opposition prices are cosmetic — shown on their team sheet, never spent.
+    const quality = Math.max(0.58 * bat.skill + 0.42 * bat.pwr, (bowl.def + bowl.att) / 2)
+    const value = Math.round(clamp((quality - 28) / 7, 1, 11) * 10) / 10
+
     return {
       id: `${club.name.replace(/\W+/g, '').toLowerCase()}-${i + 1}`,
       name,
+      value,
       positions: a.positions,
       wk: a.wk,
       bowlType: a.bowlType,
-      bat: { skill: rate(a.skill), pwr: rate(a.pwr) },
-      bowl: { def: rate(a.def), att: rate(a.att) },
+      bat,
+      bowl,
     }
   })
 }

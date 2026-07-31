@@ -29,13 +29,13 @@ await build({
 
 const {
   BAGSHOT_SQUAD, OPPOSITION, RULES,
-  simulateMatch, autoPlan, autoBattingOrder, buildRota, validatePlan,
+  simulateMatch, autoPlan, autoBattingOrder, autoSelectXI, buildRota, validatePlan,
 } = await import(join(outdir, 'engine.mjs'))
 
 const argMatches = process.argv.indexOf('--matches')
 const MATCHES = argMatches > -1 ? Number(process.argv[argMatches + 1]) : 2000
 
-const XI = autoBattingOrder(BAGSHOT_SQUAD).slice(0, 11)
+const BAGSHOT_XI = autoSelectXI(BAGSHOT_SQUAD)
 
 // ------------------------------------------------------------------ helpers
 
@@ -74,12 +74,15 @@ let motmMissing = 0
 // shape of individual innings.
 let ducks = 0, twenties = 0, fifties = 0, hundreds = 0, topScores = 0, inningsCount = 0
 
-// Even-strength opponents only, so the win rate is a fair coin test.
+// Calibration is measured par-against-par — two league-average clubs playing
+// each other. Measuring it against Bagshot's own XI would move the goalposts
+// every time somebody edits the squad.
 const evenOpponents = OPPOSITION.filter((c) => c.strength >= 0.97 && c.strength <= 1.03)
 
 for (let i = 0; i < MATCHES; i++) {
   const opp = evenOpponents[i % evenOpponents.length]
-  const m = simulateMatch(opp, XI, i * 7919 + 13)
+  const other = evenOpponents[(i + 1) % evenOpponents.length]
+  const m = simulateMatch(opp, other.xi, i * 7919 + 13)
 
   firstTotals.push(m.first.runs)
   secondTotals.push(m.second.runs)
@@ -104,7 +107,7 @@ for (let i = 0; i < MATCHES; i++) {
   }
 }
 
-console.log('\x1b[1mFirst innings (opposition batting vs your plan)\x1b[0m')
+console.log('\x1b[1mFirst innings (par club batting, par club bowling)\x1b[0m')
 check('median total', pct(firstTotals, 50), 190, 240, (v) => Math.round(v))
 check('10th percentile', pct(firstTotals, 10), 110, 175, (v) => Math.round(v))
 check('90th percentile', pct(firstTotals, 90), 250, 320, (v) => Math.round(v))
@@ -140,13 +143,25 @@ const mirrorRate = (mirrorWins / mirrorN) * 100
 check('mirror match — chasing win %', mirrorRate, 46, 58, (v) => v.toFixed(1))
 console.log(`  \x1b[90m${mirrorN} matches of a side against itself · ${mirrorTies} tied\x1b[0m`)
 
-const winRate = (outcomes.win / MATCHES) * 100
-console.log(
-  `  \x1b[90mplaceholder Bagshot XI vs par opposition: ${winRate.toFixed(1)}% ` +
-  `(W ${outcomes.win} · L ${outcomes.loss} · T ${outcomes.tie}) — ` +
-  `informational, the shipped squad is stronger than par\x1b[0m`,
-)
+const parRate = (outcomes.win / MATCHES) * 100
+console.log(`  \x1b[90mpar club vs par club, side batting second: ${parRate.toFixed(1)}%\x1b[0m`)
 check('MotM always chosen', motmMissing, 0, 0, (v) => v)
+
+// How the actual Bagshot squad fares. Informational — it moves whenever the
+// squad is edited, so it must never gate the build.
+const bagshotRate = (tier) => {
+  const clubs = OPPOSITION.filter((c) => c.tier === tier)
+  let w = 0
+  const n = 400
+  for (let i = 0; i < n; i++) {
+    if (simulateMatch(clubs[i % clubs.length], BAGSHOT_XI, i * 5077 + 3).outcome === 'win') w++
+  }
+  return (w / n) * 100
+}
+console.log('\n  \x1b[90mBagshot XI win rate by tier (informational):\x1b[0m')
+for (const tier of ['derby', 'midtable', 'promotion', 'premier']) {
+  console.log(`  \x1b[90m  ${tier.padEnd(10)} ${bagshotRate(tier).toFixed(1)}%\x1b[0m`)
+}
 
 // ------------------------------------------------- ratings must matter
 
@@ -172,9 +187,12 @@ const winRateFor = (squad) => {
   return (w / n) * 100
 }
 
-const weak = winRateFor(shift(BAGSHOT_SQUAD, -12))
-const base = winRateFor(BAGSHOT_SQUAD)
-const strong = winRateFor(shift(BAGSHOT_SQUAD, +12))
+// Shift a par XI rather than Bagshot's: starting from a side that already wins
+// most of its games would hit the ceiling and hide a real regression.
+const PAR_XI = evenOpponents[0].xi
+const weak = winRateFor(shift(PAR_XI, -12))
+const base = winRateFor(PAR_XI)
+const strong = winRateFor(shift(PAR_XI, +12))
 console.log(`  \x1b[90m-12 ratings: ${weak.toFixed(1)}%   base: ${base.toFixed(1)}%   +12: ${strong.toFixed(1)}%\x1b[0m`)
 check('weaker squad wins less', base - weak, 8, 100, (v) => v.toFixed(1))
 check('stronger squad wins more', strong - base, 8, 100, (v) => v.toFixed(1))
@@ -191,8 +209,8 @@ let runsMismatch = 0
 
 for (let i = 0; i < 500; i++) {
   const opp = evenOpponents[i % evenOpponents.length]
-  const plan = autoPlan(XI)
-  if (validatePlan(plan, XI).length > 0) capViolations++
+  const plan = autoPlan(BAGSHOT_XI)
+  if (validatePlan(plan, BAGSHOT_XI).length > 0) capViolations++
 
   const rota = buildRota(plan, (() => { let s = i; return () => ((s = (s * 16807) % 2147483647) / 2147483647) })())
   for (let o = 1; o < rota.length; o++) if (rota[o] === rota[o - 1]) rotaViolations++
@@ -201,7 +219,7 @@ for (let i = 0; i < 500; i++) {
   for (const n of counts.values()) if (n > RULES.maxOversPerBowler) capViolations++
   if (counts.size < RULES.minBowlers) tooFewBowlers++
 
-  const m = simulateMatch(opp, XI, i * 104729 + 7)
+  const m = simulateMatch(opp, BAGSHOT_XI, i * 104729 + 7)
   for (const innings of [m.first, m.second]) {
     const bowled = innings.bowling.reduce((s, b) => s + b.balls, 0)
     if (bowled !== innings.balls) ballsMismatch++

@@ -2,12 +2,8 @@ import type { Player } from './types'
 
 /**
  * ============================================================================
- *  BAGSHOT CC SQUAD — PLACEHOLDER DATA. REPLACE THE LIST BELOW.
+ *  BAGSHOT CC SQUAD — the real thing.
  * ============================================================================
- *
- * These are invented players so the game is playable out of the box. Swap them
- * for the real squad — either by editing this file, or in-game via the SQUAD
- * screen, which saves to localStorage and overrides this file.
  *
  * Every rating is 0-100 and **60 is league average**:
  *
@@ -16,82 +12,264 @@ import type { Player } from './types'
  *   bowl.def   DEF   — containment. Economy, dots, fewer wides.
  *   bowl.att   ATT   — penetration. Taking wickets.
  *
- * Rough calibration for a Surrey Championship side:
+ * `value` is the player's price in £m, spent against the selection budget.
  *
- *   85+   league star, best in the division
- *   75    first-team regular, wins games on his own
- *   60    solid first-teamer — the baseline
- *   45    second-team standard
- *   30    genuine rabbit / doesn't bowl
+ * `positions` — the batting slots a player can be picked in, inclusive — is the
+ * one field not in the source data. It is derived from each player's role and
+ * batting quality, so treat it as a first cut and edit freely: picking someone
+ * outside his range is allowed, it just costs him a little.
  *
- * `positions` is the range of batting slots the player can be picked in,
- * inclusive. Picking someone outside it is allowed but carries a small penalty.
- * Give a non-bowler `bowl: { def: 0, att: 0 }` and they won't be selectable in
- * the bowling plan.
+ * A rating below 20 in both DEF and ATT means the player doesn't bowl, and he
+ * won't appear in the bowling plan. Neither will whoever is keeping wicket.
  */
 export const BAGSHOT_SQUAD: Player[] = [
   {
-    id: 'p01', name: 'Sam Opener', positions: [1, 2],
-    bat: { skill: 74, pwr: 62 }, bowl: { def: 0, att: 0 },
+    id: 'neal-panting', name: 'Neal Panting', value: 1.7,
+    role: 'All-rounder', positions: [7, 10],
+    bowlType: 'pace',
+    bat: { skill: 55, pwr: 43 }, bowl: { def: 45, att: 60 },
   },
   {
-    id: 'p02', name: 'Will Hooper', positions: [1, 3],
-    bat: { skill: 66, pwr: 75 }, bowl: { def: 0, att: 0 },
+    id: 'keith-wheeler', name: 'Keith Wheeler', value: 2,
+    role: 'Spin all-rounder', positions: [3, 6],
+    bowlType: 'spin',
+    bat: { skill: 78, pwr: 88 }, bowl: { def: 34, att: 50 },
   },
   {
-    id: 'p03', name: 'Ollie Anchor', positions: [3, 4],
-    bat: { skill: 78, pwr: 64 }, bowl: { def: 52, att: 44 }, bowlType: 'spin',
+    id: 'paul-broome', name: 'Paul Broome', value: 3.5,
+    role: 'Batter', positions: [5, 8],
+    bat: { skill: 62, pwr: 32 }, bowl: { def: 1, att: 1 },
   },
   {
-    id: 'p04', name: 'James Skipper', positions: [3, 5],
-    bat: { skill: 71, pwr: 73 }, bowl: { def: 58, att: 55 }, bowlType: 'pace',
+    id: 'jason-skilton', name: 'Jason Skilton', value: 4,
+    role: 'All-rounder', positions: [5, 8],
+    bowlType: 'pace',
+    bat: { skill: 65, pwr: 75 }, bowl: { def: 70, att: 50 },
   },
   {
-    id: 'p05', name: 'Tom Finisher', positions: [4, 6],
-    bat: { skill: 62, pwr: 82 }, bowl: { def: 0, att: 0 },
+    id: 'richard-rowlett', name: 'Richard Rowlett', value: 7,
+    role: 'Batter', positions: [2, 5],
+    bat: { skill: 73, pwr: 82 }, bowl: { def: 14, att: 22 },
   },
   {
-    id: 'p06', name: 'Harry Allround', positions: [5, 7],
-    bat: { skill: 65, pwr: 70 }, bowl: { def: 68, att: 66 }, bowlType: 'pace',
+    id: 'andrew-doyle', name: 'Andrew Doyle', value: 4,
+    role: 'Batting all-rounder', positions: [1, 4],
+    bowlType: 'pace',
+    bat: { skill: 85, pwr: 73 }, bowl: { def: 44, att: 52 },
   },
   {
-    id: 'p07', name: 'Ben Gloves', positions: [5, 8], wk: true,
-    bat: { skill: 60, pwr: 67 }, bowl: { def: 0, att: 0 },
+    id: 'jack-grinstead', name: 'Jack Grinstead', value: 4,
+    role: 'Batter', positions: [1, 3],
+    bowlType: 'pace',
+    bat: { skill: 88, pwr: 85 }, bowl: { def: 27, att: 34 },
   },
   {
-    id: 'p08', name: 'Charlie Twirl', positions: [6, 8],
-    bat: { skill: 56, pwr: 61 }, bowl: { def: 74, att: 70 }, bowlType: 'spin',
+    id: 'matthew-funnell', name: 'Matthew Funnell', value: 3.5,
+    role: 'Batting all-rounder', positions: [2, 5],
+    bowlType: 'pace',
+    bat: { skill: 80, pwr: 74 }, bowl: { def: 32, att: 44 },
   },
   {
-    id: 'p09', name: 'Danny Quick', positions: [8, 10],
-    bat: { skill: 44, pwr: 58 }, bowl: { def: 70, att: 80 }, bowlType: 'pace',
+    id: 'will-graham', name: 'Will Graham', value: 2,
+    role: 'Bowler', positions: [9, 11],
+    bowlType: 'pace',
+    bat: { skill: 23, pwr: 33 }, bowl: { def: 46, att: 46 },
   },
   {
-    id: 'p10', name: 'Rob Seam', positions: [9, 11],
-    bat: { skill: 38, pwr: 46 }, bowl: { def: 78, att: 72 }, bowlType: 'pace',
+    id: 'jack-rowlett', name: 'Jack Rowlett', value: 3.9,
+    role: 'Batting all-rounder', positions: [1, 4],
+    bowlType: 'pace',
+    bat: { skill: 77, pwr: 91 }, bowl: { def: 45, att: 52 },
   },
   {
-    id: 'p11', name: 'Alfie Yorker', positions: [10, 11],
-    bat: { skill: 28, pwr: 44 }, bowl: { def: 66, att: 79 }, bowlType: 'pace',
-  },
-  // --- squad players, not automatically in the XI -------------------------
-  {
-    id: 'p12', name: 'Nick Blocker', positions: [1, 3],
-    bat: { skill: 68, pwr: 52 }, bowl: { def: 0, att: 0 },
+    id: 'josh-nakarja', name: 'Josh Nakarja', value: 3.5,
+    role: 'All-rounder', positions: [4, 7],
+    bowlType: 'pace',
+    bat: { skill: 73, pwr: 85 }, bowl: { def: 57, att: 63 },
   },
   {
-    id: 'p13', name: 'Joe Slogger', positions: [6, 9],
-    bat: { skill: 48, pwr: 76 }, bowl: { def: 48, att: 52 }, bowlType: 'pace',
+    id: 'nigel-rice', name: 'Nigel Rice', value: 1,
+    role: 'Batter', positions: [4, 7],
+    bat: { skill: 63, pwr: 45 }, bowl: { def: 14, att: 22 },
   },
   {
-    id: 'p14', name: 'Ed Steady', positions: [4, 7],
-    bat: { skill: 63, pwr: 58 }, bowl: { def: 62, att: 50 }, bowlType: 'spin',
+    id: 'geoff-young', name: 'Geoff Young', value: 1,
+    role: 'Batter', positions: [3, 6],
+    bat: { skill: 74, pwr: 52 }, bowl: { def: 12, att: 3 },
   },
   {
-    id: 'p15', name: 'Max Colt', positions: [7, 10],
-    bat: { skill: 46, pwr: 60 }, bowl: { def: 60, att: 64 }, bowlType: 'pace',
+    id: 'alex-dunnage', name: 'Alex Dunnage', value: 1.5,
+    role: 'Spin all-rounder', positions: [3, 6],
+    bowlType: 'spin',
+    bat: { skill: 79, pwr: 93 }, bowl: { def: 81, att: 76 },
+  },
+  {
+    id: 'barrie-funnell', name: 'Barrie Funnell', value: 1,
+    role: 'Batter', positions: [4, 7],
+    bat: { skill: 75, pwr: 23 }, bowl: { def: 8, att: 12 },
+  },
+  {
+    id: 'chris-hollely', name: 'Chris Hollely', value: 2.9,
+    role: 'Batter', positions: [2, 5],
+    bat: { skill: 76, pwr: 77 }, bowl: { def: 1, att: 1 },
+  },
+  {
+    id: 'surya-babu', name: 'Surya Babu', value: 3.3,
+    role: 'All-rounder', positions: [4, 7],
+    bowlType: 'pace',
+    bat: { skill: 68, pwr: 85 }, bowl: { def: 74, att: 81 },
+  },
+  {
+    id: 'jack-brown', name: 'Jack Brown', value: 3.9,
+    role: 'Bowler', positions: [9, 11],
+    bowlType: 'pace',
+    bat: { skill: 35, pwr: 44 }, bowl: { def: 84, att: 88 },
+  },
+  {
+    id: 'derek-budd', name: 'Derek Budd', value: 4.4,
+    role: 'Bowler', positions: [9, 11],
+    bowlType: 'pace',
+    bat: { skill: 34, pwr: 43 }, bowl: { def: 72, att: 79 },
+  },
+  {
+    id: 'matt-alexander', name: 'Matt Alexander', value: 3.9,
+    role: 'Bowler', positions: [10, 11],
+    bowlType: 'pace',
+    bat: { skill: 1, pwr: 1 }, bowl: { def: 84, att: 78 },
+  },
+  {
+    id: 'mark-sutherland', name: 'Mark Sutherland', value: 7.1,
+    role: 'Bowler', positions: [10, 11],
+    bowlType: 'pace',
+    bat: { skill: 12, pwr: 9 }, bowl: { def: 66, att: 68 },
+  },
+  {
+    id: 'archie-graham', name: 'Archie Graham', value: 5.9,
+    role: 'All-rounder', positions: [5, 8],
+    bowlType: 'pace',
+    bat: { skill: 71, pwr: 65 }, bowl: { def: 81, att: 86 },
+  },
+  {
+    id: 'albie-swindells', name: 'Albie Swindells', value: 3.4,
+    role: 'Bowler', positions: [9, 11],
+    bowlType: 'pace',
+    bat: { skill: 30, pwr: 38 }, bowl: { def: 79, att: 81 },
+  },
+  {
+    id: 'charlie-hodgson', name: 'Charlie Hodgson', value: 1.5,
+    role: 'All-rounder', positions: [6, 9],
+    bowlType: 'pace',
+    bat: { skill: 50, pwr: 74 }, bowl: { def: 50, att: 43 },
+  },
+  {
+    id: 'neil-harris', name: 'Neil Harris', value: 1,
+    role: 'Spin bowler', positions: [10, 11],
+    bowlType: 'spin',
+    bat: { skill: 10, pwr: 14 }, bowl: { def: 45, att: 62 },
+  },
+  {
+    id: 'baiju-nakarja', name: 'Baiju Nakarja', value: 1,
+    role: 'Spin bowler', positions: [8, 10],
+    bowlType: 'spin',
+    bat: { skill: 45, pwr: 67 }, bowl: { def: 52, att: 53 },
+  },
+  {
+    id: 'adam-passfield', name: 'Adam Passfield', value: 2,
+    role: 'All-rounder', positions: [4, 7],
+    bowlType: 'pace',
+    bat: { skill: 77, pwr: 76 }, bowl: { def: 84, att: 81 },
+  },
+  {
+    id: 'jonathan-atkinson', name: 'Jonathan Atkinson', value: 2.5,
+    role: 'Spin bowler', positions: [7, 9],
+    bowlType: 'spin',
+    bat: { skill: 68, pwr: 58 }, bowl: { def: 82, att: 79 },
+  },
+  {
+    id: 'matt-pettet', name: 'Matt Pettet', value: 3.9,
+    role: 'Bowler', positions: [7, 9],
+    bowlType: 'pace',
+    bat: { skill: 70, pwr: 55 }, bowl: { def: 80, att: 79 },
+  },
+  {
+    id: 'james-white', name: 'James White', value: 9.7,
+    role: 'All-rounder', positions: [3, 6],
+    bowlType: 'pace',
+    bat: { skill: 87, pwr: 81 }, bowl: { def: 91, att: 88 },
+  },
+  {
+    id: 'paul-kelly', name: 'Paul Kelly', value: 6.6,
+    role: 'All-rounder', positions: [5, 8],
+    bowlType: 'pace',
+    bat: { skill: 69, pwr: 82 }, bowl: { def: 68, att: 72 },
+  },
+  {
+    id: 'jeremy-davis', name: 'Jeremy Davis', value: 8.5,
+    role: 'Spin all-rounder', positions: [4, 7],
+    bowlType: 'spin',
+    bat: { skill: 78, pwr: 74 }, bowl: { def: 76, att: 74 },
+  },
+  {
+    id: 'mark-dawson', name: 'Mark Dawson', value: 9.8,
+    role: 'Spin all-rounder', positions: [6, 9],
+    bowlType: 'spin',
+    bat: { skill: 73, pwr: 48 }, bowl: { def: 68, att: 78 },
+  },
+  {
+    id: 'adit-gandhi', name: 'Adit Gandhi', value: 9.1,
+    role: 'Spin all-rounder', positions: [3, 6],
+    bowlType: 'spin',
+    bat: { skill: 83, pwr: 88 }, bowl: { def: 82, att: 79 },
+  },
+  {
+    id: 'sam-brown', name: 'Sam Brown', value: 2.5,
+    role: 'All-rounder', positions: [5, 8],
+    bowlType: 'pace',
+    bat: { skill: 72, pwr: 71 }, bowl: { def: 72, att: 68 },
+  },
+  {
+    id: 'tony-roome', name: 'Tony Roome', value: 4.9,
+    role: 'All-rounder', positions: [5, 8],
+    bowlType: 'pace',
+    bat: { skill: 75, pwr: 63 }, bowl: { def: 76, att: 70 },
+  },
+  {
+    id: 'alex-murray', name: 'Alex Murray', value: 3.9,
+    role: 'All-rounder', positions: [4, 7],
+    bowlType: 'pace',
+    bat: { skill: 77, pwr: 76 }, bowl: { def: 74, att: 73 },
+  },
+  {
+    id: 'henry-mackay', name: 'Henry Mackay', value: 10.1,
+    role: 'Defensive bowler', positions: [4, 7],
+    bowlType: 'pace',
+    bat: { skill: 88, pwr: 83 }, bowl: { def: 81, att: 92 },
+  },
+  {
+    id: 'brad-pressfield', name: 'Brad Pressfield', value: 2,
+    role: 'Spin all-rounder', positions: [3, 6],
+    bowlType: 'spin',
+    bat: { skill: 81, pwr: 82 }, bowl: { def: 83, att: 81 },
+  },
+  {
+    id: 'michael-davis', name: 'Michael Davis', value: 4.8,
+    role: 'Wicketkeeper-batter', positions: [1, 4],
+    wk: true, bowlType: 'pace',
+    bat: { skill: 82, pwr: 76 }, bowl: { def: 63, att: 55 },
+  },
+  {
+    id: 'stuart-derry', name: 'Stuart Derry', value: 3.5,
+    role: 'Wicketkeeper-batter', positions: [3, 6],
+    wk: true,
+    bat: { skill: 76, pwr: 48 }, bowl: { def: 1, att: 1 },
+  },
+  {
+    id: 'rick-medlock', name: 'Rick Medlock', value: 3,
+    role: 'Wicketkeeper-batter', positions: [4, 7],
+    wk: true,
+    bat: { skill: 70, pwr: 44 }, bowl: { def: 1, att: 1 },
   },
 ]
 
-/** True while the shipped placeholders are still in use — the UI nags about it. */
-export const SQUAD_IS_PLACEHOLDER = true
+/** Total cost of fielding literally everyone, for scale. */
+export const SQUAD_VALUE = BAGSHOT_SQUAD.reduce((sum, p) => sum + p.value, 0)
