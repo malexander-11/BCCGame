@@ -1,5 +1,36 @@
+import { RULES } from '../data/types'
 import type { Player } from '../data/types'
-import { playerQuality } from './ratings'
+import { isBowler, playerQuality } from './ratings'
+
+/**
+ * Picks a legal, sensible XI from a bigger squad: a keeper first, then enough
+ * bowlers to get through 45 overs, then the best batters left. Same shape a
+ * selection committee would arrive at, without the argument.
+ */
+export function autoSelectXI(squad: Player[]): Player[] {
+  const chosen: Player[] = []
+  const take = (p: Player | undefined) => {
+    if (p && !chosen.includes(p)) chosen.push(p)
+  }
+  const rest = () => squad.filter((p) => !chosen.includes(p))
+
+  // The keeper is non-negotiable — pick the one who bats best.
+  take([...squad.filter((p) => p.wk)].sort((a, b) => playerQuality(b) - playerQuality(a))[0])
+
+  // Then a front-line attack.
+  const bowlers = rest()
+    .filter(isBowler)
+    .sort((a, b) => (b.bowl.def + b.bowl.att) - (a.bowl.def + a.bowl.att))
+  for (const p of bowlers.slice(0, RULES.minBowlers)) take(p)
+
+  // Fill up with runs.
+  for (const p of rest().sort((a, b) => playerQuality(b) - playerQuality(a))) {
+    if (chosen.length >= 11) break
+    take(p)
+  }
+
+  return autoBattingOrder(chosen.slice(0, 11))
+}
 
 /**
  * Picks a batting order the way a captain would: fill each slot with the best

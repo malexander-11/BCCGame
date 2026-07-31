@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html, body, #root {
+  background: #0B1612;
+  color: #EFE9D6;
+  font-family: 'Manrope', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Condensed display face for headings, scores and stat labels. */
+.disp { font-family: 'Barlow Condensed', 'Manrope', sans-serif; }
+.brandface { font-family: 'Anton', 'Barlow Condensed', sans-serif; }
+/* Tabular figures so scores don't jitter as they tick over. */
+.num { font-variant-numeric: tabular-nums; }
+
+.pop { animation: pop .28s cubic-bezier(.2, .9, .3, 1.2); }
+@keyframes pop {
+  from { opacity: 0; transform: translateY(8px) scale(.99); }
+  to   { opacity: 1; transform: none; }
+}
+
+.flash-gold { animation: flashGold .85s ease-out; }
+@keyframes flashGold {
+  0%   { box-shadow: 0 0 0 0 rgba(233,185,73,.55); }
+  100% { box-shadow: 0 0 0 26px rgba(233,185,73,0); }
+}
+
+.flash-red { animation: flashRed .85s ease-out; }
+@keyframes flashRed {
+  0%   { box-shadow: 0 0 0 0 rgba(224,74,64,.55); }
+  100% { box-shadow: 0 0 0 26px rgba(224,74,64,0); }
+}
+
+.slide-in { animation: slideIn .3s ease-out; }
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-10px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* The pitch-green gradient wash behind every screen. */
+.field-bg {
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(120% 80% at 50% -10%, rgba(63,174,106,.16), transparent 60%),
+    radial-gradient(90% 60% at 50% 110%, rgba(233,185,73,.09), transparent 60%),
+    #0B1612;
+  pointer-events: none;
+  z-index: 0;
+}
+
+button { -webkit-tap-highlight-color: transparent; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: #23402F; border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }

@@ -69,6 +69,11 @@ const outcomes = { win: 0, loss: 0, tie: 0 }
 const allOut = []
 let motmMissing = 0
 
+// Aggregate totals are easy to hit with a distribution that's wrong in the
+// detail — everyone making 20, or one batter making all of it. These watch the
+// shape of individual innings.
+let ducks = 0, twenties = 0, fifties = 0, hundreds = 0, topScores = 0, inningsCount = 0
+
 // Even-strength opponents only, so the win rate is a fair coin test.
 const evenOpponents = OPPOSITION.filter((c) => c.strength >= 0.97 && c.strength <= 1.03)
 
@@ -84,6 +89,19 @@ for (let i = 0; i < MATCHES; i++) {
   allOut.push(m.first.allOut ? 1 : 0)
   outcomes[m.outcome]++
   if (!m.motm.name || m.motm.name === '—') motmMissing++
+
+  for (const innings of [m.first, m.second]) {
+    const batted = innings.batting.filter((b) => b.batted && b.balls > 0)
+    if (batted.length === 0) continue
+    inningsCount++
+    topScores += Math.max(...batted.map((b) => b.runs))
+    for (const b of batted) {
+      if (b.runs === 0 && b.out) ducks++
+      if (b.runs >= 20) twenties++
+      if (b.runs >= 50) fifties++
+      if (b.runs >= 100) hundreds++
+    }
+  }
 }
 
 console.log('\x1b[1mFirst innings (opposition batting vs your plan)\x1b[0m')
@@ -94,6 +112,13 @@ check('mean run rate', mean(firstRR), 4.2, 5.6, (v) => v.toFixed(2))
 check('mean wickets lost', mean(firstWkts), 5.5, 8.5, (v) => v.toFixed(2))
 check('all-out rate %', mean(allOut) * 100, 25, 45, (v) => v.toFixed(1))
 check('mean extras', mean(firstExtras), 8, 20, (v) => v.toFixed(1))
+
+console.log('\n\x1b[1mIndividual scores (both innings)\x1b[0m')
+check('ducks per innings', ducks / inningsCount, 0.4, 2.6, (v) => v.toFixed(2))
+check('20+ scores per innings', twenties / inningsCount, 2.5, 4.5, (v) => v.toFixed(2))
+check('fifties per innings', fifties / inningsCount, 0.6, 1.5, (v) => v.toFixed(2))
+check('hundreds per innings', hundreds / inningsCount, 0.05, 0.35, (v) => v.toFixed(3))
+check('mean top score', topScores / inningsCount, 60, 90, (v) => v.toFixed(1))
 
 console.log('\n\x1b[1mMatch outcomes\x1b[0m')
 
