@@ -28,8 +28,11 @@ await build({
 })
 
 const {
-  BAGSHOT_SQUAD, OPPOSITION, RULES,
-  simulateMatch, autoPlan, autoBattingOrder, autoSelectXI, buildRota, validatePlan,
+  BAGSHOT_SQUAD, OPPOSITION, RULES, DIV6_WEST, BAGSHOT_REAL_POSITION,
+  simulateMatch, simulateFieldingInnings, simulateBattingInnings, buildMatchResult,
+  autoPlan, autoBattingOrder, autoSelectXI, buildRota, validatePlan,
+  createSeason, nextFixture, recordRound, standings, seasonComplete,
+  dlsPar, resources, swingBoost, SWING_WINDOW,
 } = await import(join(outdir, 'engine.mjs'))
 
 const argMatches = process.argv.indexOf('--matches')
@@ -232,11 +235,91 @@ for (let i = 0; i < 500; i++) {
   }
 }
 
+// Split spells must not be able to produce an illegal rota.
+let splitViolations = 0
+let splitCap = 0
+for (let i = 0; i < 300; i++) {
+  const bowlers = BAGSHOT_XI.filter((p) => p.bowl.def >= 20 && p.bowl.att >= 20 && !p.wk).slice(0, 5)
+  if (bowlers.length < RULES.minBowlers) break
+  const combos = [['new-ball'], ['middle'], ['death'], ['new-ball', 'middle'],
+                  ['middle', 'death'], ['new-ball', 'death'], ['new-ball', 'middle', 'death']]
+  const plan = bowlers.map((p, n) => ({
+    playerId: p.id, overs: 9, prefs: combos[(i + n) % combos.length],
+  }))
+  let s = i + 1
+  const rota = buildRota(plan, () => ((s = (s * 16807) % 2147483647) / 2147483647))
+  for (let o = 1; o < rota.length; o++) if (rota[o] === rota[o - 1]) splitViolations++
+  const counts = new Map()
+  for (const id of rota) counts.set(id, (counts.get(id) ?? 0) + 1)
+  for (const n of counts.values()) if (n > RULES.maxOversPerBowler) splitCap++
+  if (rota.length !== RULES.overs) splitCap++
+}
+
 check('no consecutive overs', rotaViolations, 0, 0, (v) => v)
+check('split spells stay legal', splitViolations + splitCap, 0, 0, (v) => v)
 check('over cap respected', capViolations, 0, 0, (v) => v)
 check('at least 5 bowlers used', tooFewBowlers, 0, 0, (v) => v)
 check('balls reconcile', ballsMismatch, 0, 0, (v) => v)
 check('runs & wickets reconcile', runsMismatch, 0, 0, (v) => v)
+
+// ------------------------------------------------------- DLS resource table
+
+console.log('\n\x1b[1mDuckworth-Lewis par\x1b[0m')
+
+let dlsMonotonic = 0
+for (let ov = 0; ov <= 50; ov += 1) {
+  for (let w = 0; w < 9; w++) {
+    // More wickets lost is never more resource.
+    if (resources(ov, w + 1) > resources(ov, w) + 1e-9) dlsMonotonic++
+  }
+  // More overs left is never less resource.
+  if (ov > 0 && resources(ov - 1, 0) > resources(ov, 0) + 1e-9) dlsMonotonic++
+}
+check('resource table monotonic', dlsMonotonic, 0, 0, (v) => v)
+
+const parAtEnd = dlsPar(200, 0, 0, RULES.balls).par
+check('par at the last ball = target', parAtEnd, 200, 200, (v) => v)
+const parAtStart = dlsPar(200, 0, 0, 0).par
+check('par before a ball is bowled = 0', parAtStart, 0, 0, (v) => v)
+check('all out spends every resource', dlsPar(200, 90, 10, 120).par, 200, 200, (v) => v)
+
+// ----------------------------------------------------------- swing bowling
+
+console.log('\n\x1b[1mSwing\x1b[0m')
+const swingEarly = swingBoost(85, 1).att
+const swingLate = swingBoost(85, SWING_WINDOW + 1).att
+check('new ball boosts the attack', swingEarly, 1.3, 1.7, (v) => v.toFixed(3))
+check('gone by the end of the window', swingLate, 1, 1, (v) => v.toFixed(3))
+check('no swing rating, no boost', swingBoost(undefined, 1).att, 1, 1, (v) => v.toFixed(3))
+
+// ------------------------------------------------------------ season shape
+
+console.log('\n\x1b[1mDivision 6 West\x1b[0m')
+
+const seasonPositions = []
+const SEASONS = Math.max(60, Math.floor(MATCHES / 20))
+const seasonPlan = autoPlan(BAGSHOT_XI)
+const seasonOrder = autoBattingOrder(BAGSHOT_XI)
+for (let s = 0; s < SEASONS; s++) {
+  let season = createSeason(s * 7919 + 11)
+  while (!seasonComplete(season)) {
+    const f = nextFixture(season)
+    const opp = DIV6_WEST.find((c) => c.id === f.opponentId)
+    const sd = (s * 31 + f.round) * 104729
+    const one = simulateFieldingInnings(opp, BAGSHOT_XI, seasonPlan, sd)
+    const two = simulateBattingInnings(opp, seasonOrder, one.runs + 1, sd)
+    season = recordRound(season, buildMatchResult(sd, opp, one, two))
+  }
+  const table = standings(season)
+  seasonPositions.push(table.find((r) => r.isBagshot).position)
+  if (table.length !== 10) seasonPositions.push(99)
+  // Everybody must have played all nine.
+  if (table.some((r) => r.played !== 9)) seasonPositions.push(99)
+}
+check('mean finish, auto-managed', mean(seasonPositions), 3.5, 6.0, (v) => v.toFixed(2))
+check('title is winnable', seasonPositions.filter((p) => p === 1).length / SEASONS * 100, 3, 30, (v) => v.toFixed(1) + '%')
+check('title is not a formality', seasonPositions.filter((p) => p >= 7).length / SEASONS * 100, 5, 45, (v) => v.toFixed(1) + '%')
+console.log(`  \x1b[90m${SEASONS} seasons · real Bagshot finished ${BAGSHOT_REAL_POSITION}th\x1b[0m`)
 
 rmSync(outdir, { recursive: true, force: true })
 

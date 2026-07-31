@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { MatchResult } from '../data/types'
 import { formatOvers } from '../engine/innings'
+import { dlsPar } from '../engine/dls'
 import { theme } from '../theme'
 import { Scorecard } from '../components/Scorecard'
 import { Card, Eyebrow, GhostButton, PrimaryButton } from '../components/ui'
@@ -13,15 +14,21 @@ const OUTCOME_STYLE = {
 } as const
 
 export function Result({
-  result, onAgain, onHome,
+  result, leagueMode, onAgain, onHome,
 }: {
   result: MatchResult
+  leagueMode?: boolean
   onAgain: () => void
   onHome: () => void
 }) {
   const [tab, setTab] = useState<'first' | 'second'>('second')
   const style = OUTCOME_STYLE[result.outcome]
   const innings = tab === 'first' ? result.first : result.second
+  // Where the chase finished against par — how comfortable it really was, which
+  // the margin alone doesn't tell you.
+  const dls = dlsPar(
+    result.first.runs, result.second.runs, result.second.wickets, result.second.balls,
+  )
 
   return (
     <div className="pt-8 pb-4 pop">
@@ -80,6 +87,26 @@ export function Result({
         </div>
       </Card>
 
+      <Card className="mt-2 px-4 py-2.5 flex items-center justify-between">
+        <div>
+          <div className="disp text-[9px] tracking-widest" style={{ color: theme.faint }}>
+            AT THE FINISH · DLS PAR
+          </div>
+          <div className="disp num text-[15px] font-bold mt-0.5">
+            {dls.par}
+            <span className="text-[11px] font-normal ml-2" style={{ color: theme.faint }}>
+              from {Math.round(dls.used)}% of resources
+            </span>
+          </div>
+        </div>
+        <div
+          className="disp num text-lg font-extrabold"
+          style={{ color: dls.diff >= 0 ? theme.green : theme.red }}
+        >
+          {dls.diff >= 0 ? '+' : ''}{dls.diff}
+        </div>
+      </Card>
+
       <div className="text-[13px] leading-relaxed text-center mt-4 px-3" style={{ color: theme.muted }}>
         {result.analysis}
       </div>
@@ -106,7 +133,9 @@ export function Result({
       </div>
 
       <div className="mt-6 grid gap-2">
-        <PrimaryButton onClick={onAgain}>NEXT FIXTURE</PrimaryButton>
+        <PrimaryButton onClick={onAgain}>
+          {leagueMode ? 'BACK TO THE TABLE' : 'NEXT FIXTURE'}
+        </PrimaryButton>
         <PrimaryButton onClick={onHome} tone="quiet">CLUBHOUSE</PrimaryButton>
       </div>
 

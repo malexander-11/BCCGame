@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { RULES } from '../data/types'
 import type { BallEvent, InningsResult } from '../data/types'
 import { formatOvers } from '../engine/innings'
+import { dlsPar } from '../engine/dls'
 import { theme } from '../theme'
 import { Eyebrow, GhostButton } from '../components/ui'
 
@@ -82,6 +83,8 @@ export function Sim({
   const need = chasing ? Math.max(0, innings.target! - runs) : 0
   const ballsLeft = Math.max(0, RULES.balls - ballsBowled)
   const rrr = chasing && ballsLeft > 0 ? (need / ballsLeft) * 6 : 0
+  // Par prices in wickets as well as balls, which the required rate can't.
+  const dls = chasing ? dlsPar(innings.target! - 1, runs, wkts, ballsBowled) : null
 
   const flashClass = flash ? (flash.startsWith('red') ? 'flash-red' : 'flash-gold') : ''
 
@@ -135,6 +138,34 @@ export function Sim({
               {need === 0 ? '—' : rrr.toFixed(2)}
             </div>
             <div className="disp text-[10px]" style={{ color: theme.faint }}>target {innings.target}</div>
+          </div>
+        </div>
+      )}
+
+      {dls && (
+        <div
+          className="rounded-xl px-4 py-2.5 mt-2 flex items-center justify-between"
+          style={{
+            background: theme.surface,
+            border: `1px solid ${dls.diff >= 0 ? `${theme.green}66` : `${theme.red}66`}`,
+          }}
+        >
+          <div>
+            <div className="disp text-[9px] tracking-widest" style={{ color: theme.faint }}>
+              DLS PAR
+            </div>
+            <div className="disp num text-lg font-bold leading-none mt-0.5">
+              {dls.par}
+              <span className="text-[11px] font-normal ml-2" style={{ color: theme.faint }}>
+                {Math.round(dls.used)}% of resources used
+              </span>
+            </div>
+          </div>
+          <div
+            className="disp num text-xl font-extrabold"
+            style={{ color: dls.diff >= 0 ? theme.green : theme.red }}
+          >
+            {dls.diff >= 0 ? '+' : ''}{dls.diff}
           </div>
         </div>
       )}

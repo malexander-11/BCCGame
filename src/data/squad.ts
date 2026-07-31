@@ -23,9 +23,13 @@ import type { Player } from './types'
  * A rating below 20 in either DEF or ATT means the player doesn't bowl, and he
  * won't appear in the bowling plan. Neither will whoever is keeping wicket.
  *
- * This is a trimmed 24-man squad — enough for a keeper, a full attack and real
- * choices in the middle order, without a long tail who would never be picked.
- * Add anyone back by pasting their entry in; nothing depends on the size.
+ * `swing` (0-100, optional) is what the player does with a new ball. It boosts
+ * ATT sharply and DEF slightly for the first dozen overs, then fades to nothing
+ * — so a swing bowler is worth far more opening the bowling than first change.
+ *
+ * A trimmed 27-man squad: enough for a keeper, a full attack and real choices in
+ * the middle order, without a long tail who would never be picked. Add anyone
+ * back by pasting their entry in; nothing depends on the size.
  */
 export const BAGSHOT_SQUAD: Player[] = [
   {
@@ -73,8 +77,14 @@ export const BAGSHOT_SQUAD: Player[] = [
   {
     id: 'jack-brown', name: 'Jack Brown', value: 3.9,
     role: 'Bowler', positions: [9, 11],
-    bowlType: 'pace',
+    bowlType: 'pace', swing: 78,
     bat: { skill: 35, pwr: 44 }, bowl: { def: 84, att: 88 },
+  },
+  {
+    id: 'derek-budd', name: 'Derek Budd', value: 4.4,
+    role: 'Bowler', positions: [9, 11],
+    bowlType: 'pace', swing: 80,
+    bat: { skill: 34, pwr: 43 }, bowl: { def: 72, att: 79 },
   },
   {
     id: 'matt-alexander', name: 'Matt Alexander', value: 3.9,
@@ -85,7 +95,7 @@ export const BAGSHOT_SQUAD: Player[] = [
   {
     id: 'archie-graham', name: 'Archie Graham', value: 5.9,
     role: 'All-rounder', positions: [5, 8],
-    bowlType: 'pace',
+    bowlType: 'pace', swing: 85,
     bat: { skill: 71, pwr: 65 }, bowl: { def: 81, att: 86 },
   },
   {
@@ -141,6 +151,18 @@ export const BAGSHOT_SQUAD: Player[] = [
     role: 'All-rounder', positions: [5, 8],
     bowlType: 'pace',
     bat: { skill: 75, pwr: 63 }, bowl: { def: 76, att: 70 },
+  },
+  {
+    id: 'sam-brown', name: 'Sam Brown', value: 2.5,
+    role: 'All-rounder', positions: [5, 8],
+    bowlType: 'pace',
+    bat: { skill: 72, pwr: 71 }, bowl: { def: 72, att: 68 },
+  },
+  {
+    id: 'matthew-funnell', name: 'Matthew Funnell', value: 3.5,
+    role: 'Batting all-rounder', positions: [2, 5],
+    bowlType: 'pace',
+    bat: { skill: 80, pwr: 74 }, bowl: { def: 32, att: 44 },
   },
   {
     id: 'alex-murray', name: 'Alex Murray', value: 3.9,

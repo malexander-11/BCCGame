@@ -2,6 +2,8 @@ import { useState } from 'react'
 import type { Club, Tier } from '../data/types'
 import { OPPOSITION_BY_TIER, TIER_BLURB, TIER_LABEL, TIER_ORDER } from '../data/opposition'
 import { teamStrength } from '../engine/ai'
+import { bagshotRow } from '../engine/season'
+import type { Season as SeasonState } from '../engine/season'
 import { theme } from '../theme'
 import type { Record } from '../storage'
 import { Brand, Card, Eyebrow, GhostButton, Panel, PrimaryButton } from '../components/ui'
@@ -21,10 +23,15 @@ const STATS: [string, string, string][] = [
 ]
 
 export function Home({
-  record, onStart, onSquad, squadSize, squadValue,
+  record, season, instant, onToggleInstant,
+  onStart, onSeason, onSquad, squadSize, squadValue,
 }: {
   record: Record
+  season: SeasonState | null
+  instant: boolean
+  onToggleInstant: () => void
   onStart: (opponent: Club) => void
+  onSeason: () => void
   onSquad: () => void
   squadSize: number
   squadValue: number
@@ -33,10 +40,31 @@ export function Home({
   const [club, setClub] = useState<Club | null>(null)
 
   const clubs = OPPOSITION_BY_TIER[tier]
+  const seasonRow = season ? bagshotRow(season) : null
+  const roundsDone = season?.results.length ?? 0
 
   return (
     <div className="pt-8 pb-4 pop">
       <Brand />
+
+      <button onClick={onSeason} className="block w-full mt-5 text-left">
+        <div
+          className="rounded-xl px-4 py-3"
+          style={{ background: 'rgba(233,185,73,.10)', border: `1px solid ${theme.gold}66` }}
+        >
+          <div className="disp tracking-[0.2em] text-[10px] font-bold" style={{ color: theme.gold }}>
+            {season ? 'SEASON IN PROGRESS' : 'START A SEASON'}
+          </div>
+          <div className="disp text-[17px] font-bold mt-0.5">Division 6 West</div>
+          <div className="text-[11.5px] mt-1 leading-snug" style={{ color: theme.cream }}>
+            {season && seasonRow
+              ? `Round ${Math.min(roundsDone + 1, 9)} of 9 · ${seasonRow.position}${
+                  ['th', 'st', 'nd', 'rd'][(seasonRow.position % 100 - 20) % 10] ?? 'th'
+                } on ${seasonRow.points} points`
+              : 'Nine fixtures against the clubs Bagshot actually play. They finished 7th last year.'}
+          </div>
+        </div>
+      </button>
 
       <button onClick={onSquad} className="block w-full mt-5 text-left">
         <div
@@ -94,7 +122,7 @@ export function Home({
       )}
 
       <div className="mt-5">
-        <Eyebrow>THIS SATURDAY</Eyebrow>
+        <Eyebrow>FRIENDLY</Eyebrow>
         <div className="grid grid-cols-4 gap-1.5 mb-3">
           {TIER_ORDER.map((t) => (
             <GhostButton
@@ -152,9 +180,16 @@ export function Home({
         )}
       </div>
 
-      <div className="mt-4">
-        <GhostButton onClick={onSquad} className="w-full !py-3 !text-[12px]">
+      <div className="flex gap-2 mt-4">
+        <GhostButton onClick={onSquad} className="flex-1 text-center !py-3 !text-[12px]">
           MANAGE SQUAD
+        </GhostButton>
+        <GhostButton
+          onClick={onToggleInstant}
+          active={instant}
+          className="flex-1 text-center !py-3 !text-[12px]"
+        >
+          {instant ? 'INSTANT ON' : 'INSTANT OFF'}
         </GhostButton>
       </div>
 

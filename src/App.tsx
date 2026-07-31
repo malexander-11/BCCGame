@@ -4,11 +4,18 @@ import { autoBattingOrder, autoSelectXI } from './engine/ai'
 import { buildMatchResult, simulateBattingInnings, simulateFieldingInnings } from './engine/match'
 import { autoPlan } from './engine/rota'
 import { randomSeed } from './engine/rng'
+import { DIV6_WEST } from './data/league'
 import {
-  loadRecord, loadSquad, recordMatch, resetSquad, saveSquad, usingCustomSquad,
+  createSeason, nextFixture, recordRound, seasonComplete,
+} from './engine/season'
+import type { Season as SeasonState } from './engine/season'
+import {
+  loadPrefs, loadRecord, loadSeason, loadSquad, recordMatch,
+  resetSquad, savePrefs, saveSeason, saveSquad, usingCustomSquad,
 } from './storage'
 import type { Record as SeasonRecord } from './storage'
 import { Home } from './screens/Home'
+import { Season } from './screens/Season'
 import { Selection } from './screens/Selection'
 import { BowlingPlan } from './screens/BowlingPlan'
 import { Sim } from './screens/Sim'
@@ -18,7 +25,7 @@ import { Result } from './screens/Result'
 import { Squad } from './screens/Squad'
 
 type Screen =
-  | 'home' | 'squad' | 'selection' | 'plan'
+  | 'home' | 'squad' | 'season' | 'selection' | 'plan'
   | 'sim1' | 'break' | 'order' | 'sim2' | 'result'
 
 export default function App() {
@@ -26,6 +33,10 @@ export default function App() {
   const [squad, setSquad] = useState<Player[]>(loadSquad)
   const [custom, setCustom] = useState(usingCustomSquad)
   const [record, setRecord] = useState<SeasonRecord>(loadRecord)
+  const [season, setSeason] = useState<SeasonState | null>(loadSeason)
+  const [prefs, setPrefs] = useState(loadPrefs)
+  /** True while the current match is a league fixture rather than a friendly. */
+  const [inLeague, setInLeague] = useState(false)
 
   const [opponent, setOpponent] = useState<Club | null>(null)
   const [seed, setSeed] = useState(randomSeed)
@@ -55,8 +66,9 @@ export default function App() {
   // Selection starts empty on purpose — picking the side is the point, and a
   // pre-filled XI turns the screen into something you tap past. AUTO is there
   // for anyone who'd rather not.
-  const startMatch = useCallback((club: Club) => {
+  const startMatch = useCallback((club: Club, league = false) => {
     setOpponent(club)
+    setInLeague(league)
     setSeed(randomSeed())
     setXi([])
     setPlan([])
@@ -65,6 +77,43 @@ export default function App() {
     setResult(null)
     setScreen('selection')
   }, [])
+
+  const persistSeason = useCallback((next: SeasonState | null) => {
+    setSeason(next)
+    saveSeason(next)
+  }, [])
+
+  const openSeason = useCallback(() => {
+    if (!season) persistSeason(createSeason(randomSeed()))
+    setScreen('season')
+  }, [season, persistSeason])
+
+  /** Play the next league fixture yourself. */
+  const playFixture = useCallback(() => {
+    if (!season) return
+    const fixture = nextFixture(season)
+    const club = fixture && DIV6_WEST.find((c) => c.id === fixture.opponentId)
+    if (club) startMatch(club, true)
+  }, [season, startMatch])
+
+  /** Hand the rest of the season to the auto manager. */
+  const simRestOfSeason = useCallback(() => {
+    if (!season) return
+    let running = season
+    while (!seasonComplete(running)) {
+      const fixture = nextFixture(running)
+      if (!fixture) break
+      const club = DIV6_WEST.find((c) => c.id === fixture.opponentId)
+      if (!club) break
+      const xiAuto = autoSelectXI(squad)
+      const planAuto = autoPlan(xiAuto)
+      const matchSeed = randomSeed()
+      const one = simulateFieldingInnings(club, xiAuto, planAuto, matchSeed)
+      const two = simulateBattingInnings(club, autoBattingOrder(xiAuto), one.runs + 1, matchSeed)
+      running = recordRound(running, buildMatchResult(matchSeed, club, one, two))
+    }
+    persistSeason(running)
+  }, [season, squad, persistSeason])
 
   const toggle = useCallback((p: Player) => {
     setXi((prev) => {
@@ -87,8 +136,8 @@ export default function App() {
   const bowlFirst = useCallback(() => {
     if (!opponent) return
     setFirst(simulateFieldingInnings(opponent, xi, plan, seed))
-    setScreen('sim1')
-  }, [opponent, xi, plan, seed])
+    setScreen(prefs.instant ? 'break' : 'sim1')
+  }, [opponent, xi, plan, seed, prefs.instant])
 
   const startChase = useCallback(() => {
     if (!opponent || !first) return
@@ -97,13 +146,26 @@ export default function App() {
     const built = buildMatchResult(seed, opponent, first, innings)
     setResult(built)
     setRecord((r) => recordMatch(r, built.outcome, innings.runs, opponent.name))
-    setScreen('sim2')
-  }, [opponent, first, order, seed])
+    // A league fixture updates the table — and plays out the rest of its round.
+    if (inLeague && season) persistSeason(recordRound(season, built))
+    setScreen(prefs.instant ? 'result' : 'sim2')
+  }, [opponent, first, order, seed, inLeague, season, persistSeason, prefs.instant])
+
+  const toggleInstant = useCallback(() => {
+    setPrefs((p) => {
+      const next = { ...p, instant: !p.instant }
+      savePrefs(next)
+      return next
+    })
+  }, [])
 
   const sortedSquad = useMemo(
     () => [...squad].sort((a, b) => a.positions[0] - b.positions[0]),
     [squad],
   )
+
+  /** Where the back arrow and the post-match buttons return you to. */
+  const homeScreen: Screen = inLeague ? 'season' : 'home'
 
   const body = (() => {
     switch (screen) {
@@ -115,6 +177,19 @@ export default function App() {
             onChange={persistSquad}
             onReset={doResetSquad}
             onBack={() => setScreen('home')}
+          />
+        )
+
+      case 'season':
+        return season && (
+          <Season
+            season={season}
+            instant={prefs.instant}
+            onToggleInstant={toggleInstant}
+            onPlay={playFixture}
+            onSimRest={simRestOfSeason}
+            onAbandon={() => { persistSeason(null); setInLeague(false); setScreen('home') }}
+            onBack={() => { setInLeague(false); setScreen('home') }}
           />
         )
 
@@ -130,7 +205,7 @@ export default function App() {
               setXi(picked)
               setPlan(autoPlan(picked))
             }}
-            onBack={() => setScreen('home')}
+            onBack={() => setScreen(homeScreen)}
             onNext={() => {
               setXi((prev) => autoBattingOrder(prev))
               if (plan.length === 0) setPlan(autoPlan(xi))
@@ -200,8 +275,12 @@ export default function App() {
         return result && (
           <Result
             result={result}
-            onAgain={() => setScreen('home')}
-            onHome={() => setScreen('home')}
+            leagueMode={inLeague}
+            onAgain={() => {
+              if (inLeague) { setScreen('season'); return }
+              setScreen('home')
+            }}
+            onHome={() => { setInLeague(false); setScreen('home') }}
           />
         )
 
@@ -210,9 +289,13 @@ export default function App() {
         return (
           <Home
             record={record}
+            season={season}
+            instant={prefs.instant}
+            onToggleInstant={toggleInstant}
             squadSize={squad.length}
             squadValue={squad.reduce((sum, p) => sum + p.value, 0)}
-            onStart={startMatch}
+            onStart={(club) => startMatch(club, false)}
+            onSeason={openSeason}
             onSquad={() => setScreen('squad')}
           />
         )

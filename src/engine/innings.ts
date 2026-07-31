@@ -4,7 +4,7 @@ import type {
   Extras, FowEntry, InningsResult, OverSummary, Player, Rota,
 } from '../data/types'
 import {
-  clamp, duel, makeBatterState, makeBowlerState,
+  clamp, duel, makeBatterState, makeBowlerState, swingBoost,
   RUNS_DAMPING, WICKET_DAMPING,
 } from './ratings'
 import type { BatterState, BowlerState } from './ratings'
@@ -131,6 +131,11 @@ export function simulateInnings(input: InningsInput): InningsResult {
     if (!bowler || !bowlerCard) continue
 
     const phase = phaseFor(over)
+    // The new ball is worth something for a dozen overs, and only to a bowler
+    // who can actually use it.
+    const swing = swingBoost(bowler.player.swing, over)
+    const effAtt = bowler.att * swing.att
+    const effDef = bowler.def * swing.def
     let ballsThisOver = 0
     let runsThisOver = 0
     let wktsThisOver = 0
@@ -165,7 +170,7 @@ export function simulateInnings(input: InningsInput): InningsResult {
       const aggWicket = clamp(0.5 + 0.5 * aggression, 0.6, 1.9)
 
       // --- extras come before anything else -------------------------------
-      const looseness = 1 / Math.pow(bowler.def, 0.6)
+      const looseness = 1 / Math.pow(effDef, 0.6)
       if (rng() < 0.030 * looseness) {
         runs++; extras.wides++; extras.total++
         bowlerCard.wides++; bowlerCard.runs++
@@ -181,8 +186,8 @@ export function simulateInnings(input: InningsInput): InningsResult {
       }
 
       // --- the two duels ---------------------------------------------------
-      const wicketFactor = duel(bowler.att, batter.sk, WICKET_DAMPING)
-      const runsFactor = duel(batter.pw, bowler.def, RUNS_DAMPING)
+      const wicketFactor = duel(effAtt, batter.sk, WICKET_DAMPING)
+      const runsFactor = duel(batter.pw, effDef, RUNS_DAMPING)
 
       // A new batter plays himself in.
       const faced = card.balls

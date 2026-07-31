@@ -96,6 +96,24 @@ export function makeBowlerState(player: Player, rng: Rng): BowlerState {
   }
 }
 
+/** How long the new ball is worth something, in overs. */
+export const SWING_WINDOW = 12
+
+/**
+ * What a bowler does with a new ball. Swing is a sharp edge early and nothing
+ * later, so a swing bowler held back to first change has wasted his best asset —
+ * which is the whole point of choosing who takes the new ball.
+ */
+export function swingBoost(swing: number | undefined, over: number) {
+  if (!swing) return { att: 1, def: 1 }
+  const decay = clamp(1 - (over - 1) / SWING_WINDOW, 0, 1)
+  const s = swing / 100
+  return {
+    att: 1 + s * 0.58 * decay,  // wickets — the big effect
+    def: 1 + s * 0.22 * decay,  // harder to get away, but less so
+  }
+}
+
 /** Single number for sorting a squad by overall usefulness. */
 export function playerQuality(p: Player): number {
   const bat = 0.58 * p.bat.skill + 0.42 * p.bat.pwr

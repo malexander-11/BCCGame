@@ -9,8 +9,8 @@ import type { Rng } from './rng'
  * bowls two overs in a row.
  */
 
-/** How well a bowler's stated preference fits a given over (0-1). */
-function prefFit(pref: SpellPref, over: number): number {
+/** How well a single phase fits a given over (0-1). */
+function fitOne(pref: SpellPref, over: number): number {
   const { overs, powerplayUntil, deathFrom } = RULES
   switch (pref) {
     case 'new-ball':
@@ -28,8 +28,20 @@ function prefFit(pref: SpellPref, over: number): number {
   }
 }
 
+/**
+ * A bowler held for several phases is available across all of them, so his fit
+ * for any given over is his best fit — not an average, which would leave a
+ * mid-and-death bowler looking mediocre in both windows.
+ */
+export function prefFit(prefs: SpellPref[], over: number): number {
+  if (prefs.length === 0) return 0.02
+  let best = 0
+  for (const p of prefs) best = Math.max(best, fitOne(p, over))
+  return best
+}
+
 export interface PlanProblem {
-  code: 'total' | 'per-bowler' | 'too-few' | 'too-many' | 'not-a-bowler' | 'zero-overs'
+  code: 'total' | 'per-bowler' | 'too-few' | 'too-many' | 'not-a-bowler' | 'no-phase'
   message: string
 }
 
@@ -74,6 +86,9 @@ export function validatePlan(plan: BowlingPlan, xi: Player[]): PlanProblem[] {
     } else if (p.id === keeper?.id) {
       problems.push({ code: 'not-a-bowler', message: `${p.name} is keeping wicket.` })
     }
+    if (a.prefs.length === 0) {
+      problems.push({ code: 'no-phase', message: `${p.name} has no spell — pick when he bowls.` })
+    }
   }
   return problems
 }
@@ -106,11 +121,11 @@ function feasible(remaining: Map<string, number>, slots: number, prev: string | 
  */
 export function buildRota(plan: BowlingPlan, rng: Rng): Rota {
   const remaining = new Map<string, number>()
-  const pref = new Map<string, SpellPref>()
+  const prefs = new Map<string, SpellPref[]>()
   for (const a of plan) {
     if (a.overs <= 0) continue
     remaining.set(a.playerId, a.overs)
-    pref.set(a.playerId, a.pref)
+    prefs.set(a.playerId, a.prefs)
   }
 
   const totalOvers = [...remaining.values()].reduce((s, n) => s + n, 0)
@@ -133,10 +148,14 @@ export function buildRota(plan: BowlingPlan, rng: Rng): Rota {
       remaining.set(id, left)
       if (!ok) continue
 
+      // Spell preference dominates; the remaining-overs term is only there to
+      // stop a bowler being left with more overs than there are slots. The
+      // feasibility guard above already guarantees legality, so leaning hard on
+      // preference is safe — and it's what makes choosing spells matter.
       const score =
-        prefFit(pref.get(id)!, over) * 0.55 +
-        (left / Math.max(slotsAfter + 1, 1)) * 0.45 +
-        rng() * 0.06
+        prefFit(prefs.get(id)!, over) * 0.80 +
+        (left / Math.max(slotsAfter + 1, 1)) * 0.20 +
+        rng() * 0.04
       if (score > bestScore) {
         bestScore = score
         best = id
@@ -187,15 +206,35 @@ export function autoPlan(xi: Player[]): BowlingPlan {
     if (!placed) break
   }
 
-  // Death overs go to whoever takes wickets; the new ball to the quicks.
-  const byAtt = [...alloc].sort((a, b) => b.player.bowl.att - a.player.bowl.att)
-  const deathIds = new Set(byAtt.slice(0, 2).map((a) => a.player.id))
+  // Anyone who swings it opens — that edge is gone by the thirteenth over, so
+  // holding a swing bowler back wastes him.
+  const swingers = new Set(
+    alloc.filter((a) => (a.player.swing ?? 0) >= 50)
+      .sort((x, y) => (y.player.swing ?? 0) - (x.player.swing ?? 0))
+      .slice(0, 2)
+      .map((a) => a.player.id),
+  )
+  // Death overs go to whoever takes wickets, skipping the new-ball pair.
+  const deathIds = new Set(
+    [...alloc]
+      .filter((a) => !swingers.has(a.player.id))
+      .sort((x, y) => y.player.bowl.att - x.player.bowl.att)
+      .slice(0, 2)
+      .map((a) => a.player.id),
+  )
 
   return alloc.map((a) => {
-    let pref: SpellPref
-    if (deathIds.has(a.player.id)) pref = 'death'
-    else if (a.player.bowlType === 'spin') pref = 'middle'
-    else pref = 'new-ball'
-    return { playerId: a.player.id, overs: a.overs, pref }
+    const prefs: SpellPref[] = []
+    if (swingers.has(a.player.id)) prefs.push('new-ball')
+    if (deathIds.has(a.player.id)) prefs.push('death')
+    if (prefs.length === 0) {
+      prefs.push(a.player.bowlType === 'spin' ? 'middle' : 'new-ball')
+    }
+    // A frontline bowler with a full allocation can't spend it all in one
+    // window, so give him the middle overs as well.
+    if (a.overs >= RULES.maxOversPerBowler - 1 && !prefs.includes('middle')) {
+      prefs.push('middle')
+    }
+    return { playerId: a.player.id, overs: a.overs, prefs }
   })
 }

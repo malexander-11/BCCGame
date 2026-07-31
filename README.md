@@ -6,7 +6,10 @@ A browser cricket game for Bagshot Cricket Club, in the spirit of
 You win the toss and bowl. Pick eleven from the squad, decide who bowls which
 45 overs, watch the opposition bat — and then chase whatever they leave you.
 
-- **45 overs a side**, the Surrey Cricket Championship Saturday league length.
+- **Season mode.** Nine fixtures in **Surrey Cricket Championship Division 6
+  West**, against the clubs Bagshot actually play. Full league table, bonus
+  points, net run rate, and the rest of the division playing itself around you.
+- **45 overs a side**, the Saturday league length.
 - **Both innings are simulated ball by ball.** Nothing is decided in advance.
 - Runs on any phone or desktop browser, no account, no backend.
 
@@ -54,6 +57,12 @@ Every player carries four numbers, all 0-100, all centred so that
 | **Batting** | `SKILL` — survival, how hard he is to get out | `PWR` — boundaries and strike rate |
 | **Bowling** | `ATT` — taking wickets | `DEF` — economy, dots, fewer extras |
 
+A fifth, optional rating sits on top: **`SWING`**, what a bowler does with a new
+ball. It lifts ATT sharply and DEF a little for the first twelve overs and then
+fades to nothing, so a swing bowler held back to first change has wasted his
+best asset. Archie Graham, Derek Budd and Jack Brown have it. Opening with them
+rather than holding them back is worth roughly **8 runs an innings**.
+
 Every ball resolves both duels: SKILL against ATT decides whether the batter
 survives, PWR against DEF decides how many runs come. That makes the two
 bowling ratings genuinely different tools — an ATT-heavy attack buys wickets
@@ -74,7 +83,7 @@ Rough guide for a Surrey Championship side:
 
 ## The squad
 
-The Bagshot squad is in [`src/data/squad.ts`](src/data/squad.ts) — 24 players,
+The Bagshot squad is in [`src/data/squad.ts`](src/data/squad.ts) — 27 players,
 trimmed from the full 42 so that everyone listed is someone who could actually
 make the side:
 
@@ -86,6 +95,7 @@ make the side:
   role: 'Spin all-rounder',               // the club's own label
   positions: [3, 6],                      // legal batting slots, inclusive
   bowlType: 'spin',
+  swing: 0,                               // optional — new-ball movement
   bat:  { skill: 79, pwr: 93 },
   bowl: { def: 81, att: 76 },
 }
@@ -118,19 +128,39 @@ though — to change the squad for everyone, edit the file and push.
    a keeper and at least five who can bowl. `AUTO` picks a legal side if you'd
    rather not.
 2. **The attack** — share 45 overs between five and seven bowlers, max nine
-   each, and give each a spell: new ball, middle, or death. The engine builds
-   the over-by-over rota from that, and nobody bowls two overs in a row.
+   each, and give each one *or more* spells: new ball, middle, death. A bowler
+   set to two is available across both windows. The engine builds the
+   over-by-over rota from that, and nobody bowls two overs in a row.
 3. **Fielding innings** — they bat. Wickets, drops, maidens, extras and full
    bowling figures. Their total is your target.
 4. **Interval** — set your batting order having seen what you have to chase.
 5. **The chase** — you bat, with the required rate driving how hard the side
-   pushes.
+   pushes, and a **DLS par score** showing whether you're actually ahead. Par
+   prices in wickets as well as balls, which a required rate can't: nine down
+   and level with the rate is not level at all.
 6. **Result** — both scorecards, bowling figures, fall of wickets, and a man of
    the match.
 
 ---
 
-## Opposition
+## The season
+
+`src/data/league.ts` holds the ten Division 6 West clubs and their real 2025
+finishing order. Nine fixtures, single round-robin. Win 20, tie 10, plus a
+bonus point per fifty runs (max 4) and per two wickets (max 5); net run rate
+breaks ties, with a side bowled out charged the full quota of overs.
+
+The other four fixtures each round are simulated headlessly, so the table moves
+around you.
+
+**On difficulty.** Bagshot really finished 7th of 10. Pitching the league so an
+auto-picked side lands there needed the opposition so strong that the title was
+a 1-in-50 shot — accurate, but not a game. It's tuned instead so a well-managed
+Bagshot is around 4th-5th: top four about half of seasons, champions roughly one
+in eleven, and still capable of a bad year. The real 7th is the benchmark shown
+on the table for you to beat. One constant, `DIVISION_BASELINE`, controls it.
+
+## Friendlies
 
 Real Surrey Cricket Championship club names across four difficulty tiers, from
 local derbies (Camberley, Valley End, Woking & Horsell) up to the Premier
@@ -169,6 +199,8 @@ goalposts.
 | `rota.ts` | Over allocation → a legal over-by-over rota, with an exact feasibility guard for the no-consecutive-overs rule. |
 | `ratings.ts` | 0-100 ratings → simulation multipliers, plus per-innings form. |
 | `ai.ts` | Auto XI selection and batting order, used for the opposition and the AUTO buttons. |
+| `season.ts` | Fixtures, league table, points and net run rate for Division 6 West. |
+| `dls.ts` | Duckworth-Lewis Standard Edition resource table and par scores. |
 | `rng.ts` | Seeded PRNG — every match is a pure function of its seed, shown on the result screen. |
 
 Cricketers are streaky, so each player rolls a form multiplier for the innings:
@@ -191,8 +223,10 @@ These are measured **par club against par club**, never against Bagshot — so
 editing the squad can't move the calibration.
 
 It also checks that better ratings win more often, that no bowler exceeds nine
-overs or bowls consecutively, and that runs, wickets and balls reconcile
-against the scorecard. All 21 checks pass.
+overs or bowls consecutively, that split spells can't produce an illegal rota,
+that the DLS resource table is monotonic and pars correctly at both ends of an
+innings, that swing fires inside its window and nowhere else, and that a season
+lands in the intended difficulty band. All 32 checks pass.
 
 The mirror-match check plays a side against itself: the chasing side wins 55.5%,
 in line with real limited-overs cricket, where knowing the target is worth

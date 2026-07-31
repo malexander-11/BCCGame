@@ -29,6 +29,12 @@ export interface Player {
   role?: string
   wk?: boolean
   bowlType?: BowlType
+  /**
+   * 0-100. How much the player does with a new ball. Boosts ATT (and, less so,
+   * DEF) for the first dozen overs and then fades to nothing — so a swing
+   * bowler is worth far more opening than first change.
+   */
+  swing?: number
 }
 
 export type Tier = 'derby' | 'midtable' | 'promotion' | 'premier'
@@ -49,7 +55,11 @@ export type SpellPref = 'new-ball' | 'middle' | 'death'
 export interface BowlerAllocation {
   playerId: string
   overs: number
-  pref: SpellPref
+  /**
+   * Which phases this bowler is held for. More than one is allowed — a bowler
+   * set to middle *and* death is available across both windows.
+   */
+  prefs: SpellPref[]
 }
 
 export type BowlingPlan = BowlerAllocation[]

@@ -33,7 +33,7 @@ export function BowlingPlan({
     const existing = byId.get(playerId)
     const next: Plan = existing
       ? plan.map((a) => (a.playerId === playerId ? { ...a, ...patch } : a))
-      : [...plan, { playerId, overs: 0, pref: 'middle' as SpellPref, ...patch }]
+      : [...plan, { playerId, overs: 0, prefs: ['middle' as SpellPref], ...patch }]
     onChange(next.filter((a) => a.overs > 0 || a.playerId === playerId))
   }
 
@@ -45,24 +45,43 @@ export function BowlingPlan({
     set(p.id, { overs: next })
   }
 
-  // What each phase of the innings actually looks like under this plan.
+  /** Toggle a phase on or off. A bowler with overs must keep at least one. */
+  const togglePhase = (playerId: string, pref: SpellPref) => {
+    const current = byId.get(playerId)?.prefs ?? []
+    const next = current.includes(pref)
+      ? current.filter((x) => x !== pref)
+      : [...current, pref]
+    set(playerId, { prefs: next })
+  }
+
+  // What each phase of the innings actually looks like under this plan. A
+  // bowler set to two phases splits his overs between them, which is the
+  // honest reading — the rota will spread him across both windows.
   const phaseProfile = useMemo(() => {
-    const used = plan.filter((a) => a.overs > 0)
+    const used = plan.filter((a) => a.overs > 0 && a.prefs.length > 0)
     const build = (pref: SpellPref) => {
-      const group = used.filter((a) => a.pref === pref)
-      if (group.length === 0) return null
-      let def = 0, att = 0, overs = 0
-      for (const a of group) {
+      let def = 0, att = 0, swing = 0, overs = 0
+      for (const a of used) {
+        if (!a.prefs.includes(pref)) continue
         const p = xi.find((x) => x.id === a.playerId)
         if (!p) continue
-        def += p.bowl.def * a.overs
-        att += p.bowl.att * a.overs
-        overs += a.overs
+        const share = a.overs / a.prefs.length
+        def += p.bowl.def * share
+        att += p.bowl.att * share
+        swing += (p.swing ?? 0) * share
+        overs += share
       }
       if (overs === 0) return null
-      return { def: Math.round(def / overs), att: Math.round(att / overs), overs }
+      return {
+        def: Math.round(def / overs),
+        att: Math.round(att / overs),
+        swing: Math.round(swing / overs),
+        overs: Math.round(overs * 10) / 10,
+      }
     }
-    return PREFS.map(([pref, label]) => ({ label, pref, ...(build(pref) ?? { def: 0, att: 0, overs: 0 }) }))
+    return PREFS.map(([pref, label]) => ({
+      label, pref, ...(build(pref) ?? { def: 0, att: 0, swing: 0, overs: 0 }),
+    }))
   }, [plan, xi])
 
   return (
@@ -120,8 +139,9 @@ export function BowlingPlan({
                 </div>
 
                 <div className="flex gap-1.5 shrink-0">
-                  <StatBar label="DEF" value={p.bowl.def} width={42} />
-                  <StatBar label="ATT" value={p.bowl.att} width={42} />
+                  <StatBar label="DEF" value={p.bowl.def} width={40} />
+                  <StatBar label="ATT" value={p.bowl.att} width={40} />
+                  {(p.swing ?? 0) > 0 && <StatBar label="SWG" value={p.swing!} width={40} />}
                 </div>
 
                 <div className="flex items-center gap-1 shrink-0 ml-1">
@@ -152,17 +172,29 @@ export function BowlingPlan({
               </div>
 
               {on && (
-                <div className="flex gap-1.5 mt-2 slide-in">
-                  {PREFS.map(([pref, label]) => (
-                    <GhostButton
-                      key={pref}
-                      active={alloc?.pref === pref}
-                      onClick={() => set(p.id, { pref })}
-                      className="flex-1 !px-1 !py-1.5 !text-[9.5px] text-center"
-                    >
-                      {label}
-                    </GhostButton>
-                  ))}
+                <div className="slide-in">
+                  <div className="flex gap-1.5 mt-2">
+                    {PREFS.map(([pref, label]) => (
+                      <GhostButton
+                        key={pref}
+                        active={alloc?.prefs.includes(pref) ?? false}
+                        onClick={() => togglePhase(p.id, pref)}
+                        className="flex-1 !px-1 !py-1.5 !text-[9.5px] text-center"
+                      >
+                        {label}
+                      </GhostButton>
+                    ))}
+                  </div>
+                  {(alloc?.prefs.length ?? 0) === 0 && (
+                    <div className="text-[10px] mt-1.5 px-1" style={{ color: theme.red }}>
+                      Pick at least one spell for {p.name}.
+                    </div>
+                  )}
+                  {(p.swing ?? 0) >= 50 && !alloc?.prefs.includes('new-ball') && (
+                    <div className="text-[10px] mt-1.5 px-1" style={{ color: theme.pitch }}>
+                      {p.name} swings it — that's worth most with the new ball.
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -190,9 +222,14 @@ export function BowlingPlan({
                   {ph.overs}<span className="text-[10px] font-normal" style={{ color: theme.faint }}> ov</span>
                 </div>
                 <div className="flex gap-1.5 mt-1">
-                  <StatBar label="DEF" value={ph.def} width={38} />
-                  <StatBar label="ATT" value={ph.att} width={38} />
+                  <StatBar label="DEF" value={ph.def} width={36} />
+                  <StatBar label="ATT" value={ph.att} width={36} />
                 </div>
+                {ph.pref === 'new-ball' && (
+                  <div className="mt-1">
+                    <StatBar label="SWING" value={ph.swing} width={80} />
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -200,9 +237,11 @@ export function BowlingPlan({
       </div>
 
       <div className="text-[11px] leading-relaxed mb-3 px-1" style={{ color: theme.muted }}>
-        Wickets come from <span style={{ color: theme.gold }}>ATT</span>, so give your strike bowlers
-        the new ball and the death. Runs are saved by <span style={{ color: theme.gold }}>DEF</span> —
-        put your miser through the middle overs and starve them.
+        Wickets come from <span style={{ color: theme.gold }}>ATT</span> and runs are saved by{' '}
+        <span style={{ color: theme.gold }}>DEF</span>, so squeeze the middle with your miser and
+        strike at the death. <span style={{ color: theme.gold }}>SWING</span> only counts for the
+        first dozen overs — a swing bowler held back has wasted his best asset. Pick more than one
+        spell to keep a bowler available across both windows.
       </div>
 
       {issues.length > 0 && (

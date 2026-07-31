@@ -1,11 +1,14 @@
 import type { Player } from './data/types'
+import type { Season } from './engine/season'
 import { BAGSHOT_SQUAD } from './data/squad'
 
 // Bumped whenever the shipped squad changes shape, so a stale save can't shadow
 // it: v2 replaced the placeholders with the real squad and added `value`, v3
-// trimmed it from 42 players to 24.
-const SQUAD_KEY = 'bcc.squad.v3'
+// trimmed it from 42 players to 24, v4 restored three and added swing ratings.
+const SQUAD_KEY = 'bcc.squad.v4'
 const RECORD_KEY = 'bcc.record.v1'
+const SEASON_KEY = 'bcc.season.v1'
+const PREFS_KEY = 'bcc.prefs.v1'
 
 export interface Record {
   played: number
@@ -67,6 +70,48 @@ export function loadRecord(): Record {
 
 export function saveRecord(r: Record): void {
   try { localStorage.setItem(RECORD_KEY, JSON.stringify(r)) } catch { /* private mode */ }
+}
+
+// ------------------------------------------------------------------- season
+
+/** A season in progress, stored whole so a campaign survives a reload. */
+export function loadSeason(): Season | null {
+  try {
+    const raw = localStorage.getItem(SEASON_KEY)
+    if (!raw) return null
+    const s = JSON.parse(raw) as Season
+    // Guard against a save written by an older schedule shape.
+    if (!Array.isArray(s?.schedule) || !Array.isArray(s?.results) || !s?.stats) return null
+    return s
+  } catch { return null }
+}
+
+export function saveSeason(season: Season | null): void {
+  try {
+    if (season) localStorage.setItem(SEASON_KEY, JSON.stringify(season))
+    else localStorage.removeItem(SEASON_KEY)
+  } catch { /* private mode */ }
+}
+
+// -------------------------------------------------------------- preferences
+
+export interface Prefs {
+  /** Skip the over-by-over playback and go straight to the scorecard. */
+  instant: boolean
+}
+
+const DEFAULT_PREFS: Prefs = { instant: false }
+
+export function loadPrefs(): Prefs {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY)
+    if (!raw) return DEFAULT_PREFS
+    return { ...DEFAULT_PREFS, ...(JSON.parse(raw) as Partial<Prefs>) }
+  } catch { return DEFAULT_PREFS }
+}
+
+export function savePrefs(p: Prefs): void {
+  try { localStorage.setItem(PREFS_KEY, JSON.stringify(p)) } catch { /* private mode */ }
 }
 
 export function recordMatch(
