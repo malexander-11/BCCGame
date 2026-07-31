@@ -3,7 +3,8 @@ import { RULES } from '../data/types'
 import type { Player } from '../data/types'
 import { theme } from '../theme'
 import {
-  Eyebrow, GhostButton, PrimaryButton, ScreenHeader, StatBar, roleColour, roleOf,
+  Eyebrow, GhostButton, PrimaryButton, ScreenHeader, StatBar, StickyFooter,
+  roleColour, roleOf,
 } from '../components/ui'
 
 /**
@@ -34,6 +35,18 @@ export function BattingOrder({
     const a = next[held]
     next[held] = next[i]
     next[i] = a
+    onChange(next)
+    setHeld(null)
+  }
+
+  /** Nudge one place, the same interaction as the selection screen. */
+  const shift = (i: number, by: -1 | 1) => {
+    const j = i + by
+    if (j < 0 || j >= order.length) return
+    const next = [...order]
+    const a = next[i]
+    next[i] = next[j]
+    next[j] = a
     onChange(next)
     setHeld(null)
   }
@@ -77,10 +90,9 @@ export function BattingOrder({
           const selected = held === i
           const role = roleOf(p)
           return (
-            <button
+            <div
               key={p.id}
-              onClick={() => tap(i)}
-              className="w-full text-left px-3 py-2.5 flex items-center gap-2.5 active:scale-[0.995] transition-all"
+              className="flex items-stretch"
               style={{
                 background: selected
                   ? 'rgba(233,185,73,.18)'
@@ -90,41 +102,64 @@ export function BattingOrder({
                 outlineOffset: -1,
               }}
             >
-              <div
-                className="disp num w-6 text-center text-[15px] font-bold shrink-0"
-                style={{ color: selected ? theme.gold : theme.faint }}
+              <button
+                onClick={() => tap(i)}
+                className="text-left pl-3 pr-2 py-2.5 flex items-center gap-2.5 flex-1 min-w-0
+                           active:scale-[0.995] transition-all"
+                style={{ minHeight: 44 }}
               >
-                {slot}
-              </div>
-
-              <div className="min-w-0 flex-1">
-                <div className="text-[13.5px] font-semibold truncate" style={{ color: selected ? theme.gold : theme.cream }}>
-                  {p.name}
-                  {p.wk && (
-                    <span className="disp text-[9px] ml-1.5 tracking-wider" style={{ color: theme.sky }}>†</span>
-                  )}
+                <div
+                  className="disp num w-6 text-center text-[15px] font-bold shrink-0"
+                  style={{ color: selected ? theme.gold : theme.faint }}
+                >
+                  {slot}
                 </div>
-                <div className="flex items-center gap-1.5 mt-0.5">
-                  <span
-                    className="disp text-[9px] font-bold px-1.5 rounded tracking-wider"
-                    style={{ background: `${roleColour(role)}22`, color: roleColour(role) }}
-                  >
-                    {role}
-                  </span>
-                  <span
-                    className="disp text-[10px]"
-                    style={{ color: risky ? theme.red : theme.faint }}
-                  >
-                    {risky ? "didn't bowl · fresh air risk" : roleOf(p) === 'BOWL' ? 'bowler' : 'batter'}
-                  </span>
-                </div>
-              </div>
 
-              <div className="flex gap-1.5 shrink-0">
-                <StatBar label="SKL" value={p.bat.skill} width={42} />
-                <StatBar label="PWR" value={p.bat.pwr} width={42} />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13.5px] font-semibold truncate" style={{ color: selected ? theme.gold : theme.cream }}>
+                    {p.name}
+                    {p.wk && (
+                      <span className="disp text-[9px] ml-1.5 tracking-wider" style={{ color: theme.sky }}>†</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span
+                      className="disp text-[9px] font-bold px-1.5 rounded tracking-wider"
+                      style={{ background: `${roleColour(role)}22`, color: roleColour(role) }}
+                    >
+                      {role}
+                    </span>
+                    <span
+                      className="disp text-[10px]"
+                      style={{ color: risky ? theme.red : theme.faint }}
+                    >
+                      {risky ? "didn't bowl · fresh air risk" : roleOf(p) === 'BOWL' ? 'bowler' : 'batter'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex gap-1.5 shrink-0">
+                  <StatBar label="SKL" value={p.bat.skill} width={42} />
+                  <StatBar label="PWR" value={p.bat.pwr} width={42} />
+                </div>
+              </button>
+
+              <div className="flex shrink-0">
+                {([[-1, '▲', 'up'], [1, '▼', 'down']] as const).map(([by, glyph, word]) => (
+                  <button
+                    key={word}
+                    onClick={() => shift(i, by)}
+                    disabled={by === -1 ? i === 0 : i === order.length - 1}
+                    aria-label={`Move ${p.name} ${word} the order`}
+                    className="disp text-[11px] w-9 flex items-center justify-center
+                               active:scale-90 transition-transform disabled:opacity-25"
+                    style={{ color: theme.muted, borderLeft: `1px solid ${theme.border}55` }}
+                  >
+                    {glyph}
+                  </button>
+                ))}
               </div>
-            </button>
+            </div>
           )
         })}
       </div>
@@ -145,9 +180,9 @@ export function BattingOrder({
         )}
       </div>
 
-      <div className="mt-4">
+      <StickyFooter>
         <PrimaryButton onClick={onNext}>GO OUT AND BAT</PrimaryButton>
-      </div>
+      </StickyFooter>
     </div>
   )
 }

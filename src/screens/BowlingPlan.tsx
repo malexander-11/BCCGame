@@ -1,10 +1,13 @@
 import { useMemo } from 'react'
 import { RULES } from '../data/types'
 import type { BowlerAllocation, BowlingPlan as Plan, Club, Player, SpellPref } from '../data/types'
-import { validatePlan } from '../engine/rota'
+import { buildRota, validatePlan } from '../engine/rota'
 import { availableBowlers } from '../engine/ratings'
+import { makeRng } from '../engine/rng'
 import { theme } from '../theme'
-import { Eyebrow, GhostButton, Notice, PrimaryButton, ScreenHeader, StatBar } from '../components/ui'
+import {
+  Eyebrow, GhostButton, Notice, PrimaryButton, ScreenHeader, StatBar, StickyFooter,
+} from '../components/ui'
 
 const PREFS: [SpellPref, string, string][] = [
   ['new-ball', 'NEW BALL', 'Overs 1-12'],
@@ -12,22 +15,45 @@ const PREFS: [SpellPref, string, string][] = [
   ['death', 'DEATH', 'Overs 36-45'],
 ]
 
+const bowlIndex = (p: Player) => 0.5 * p.bowl.def + 0.5 * p.bowl.att
+/** Below this a legal bowler is really a part-timer, not part of the attack. */
+const FRONTLINE = 60
+
 export function BowlingPlan({
-  xi, opponent, plan, onChange, onAuto, onBack, onNext,
+  xi, opponent, plan, seed, onChange, onAuto, onBack, onNext,
 }: {
   xi: Player[]
   opponent: Club
   plan: Plan
+  /** The match seed, so the preview is the rota you'll actually get. */
+  seed: number
   onChange: (plan: Plan) => void
   onAuto: () => void
   onBack: () => void
   onNext: () => void
 }) {
-  const bowlers = useMemo(() => availableBowlers(xi), [xi])
+  // `xi` arrives in batting order, which puts your worst bowler at the top of
+  // the attack list. Sort by what they're actually here for, and push the
+  // part-timers below a divider so the five you'll really use are together.
+  const { frontline, partTime } = useMemo(() => {
+    const all = [...availableBowlers(xi)].sort((a, b) => bowlIndex(b) - bowlIndex(a))
+    return {
+      frontline: all.filter((p) => bowlIndex(p) >= FRONTLINE),
+      partTime: all.filter((p) => bowlIndex(p) < FRONTLINE),
+    }
+  }, [xi])
   const byId = useMemo(() => new Map(plan.map((a) => [a.playerId, a])), [plan])
   const allocated = plan.reduce((s, a) => s + a.overs, 0)
   const remaining = RULES.overs - allocated
   const issues = validatePlan(plan, xi)
+
+  // buildRota is the first thing to draw on the match rng, so seeding it the
+  // same way reproduces exactly the rota the innings will use — this is a
+  // preview, not an estimate.
+  const rota = useMemo(
+    () => (issues.length > 0 ? [] : buildRota(plan, makeRng(seed))),
+    [plan, seed, issues.length],
+  )
 
   const set = (playerId: string, patch: Partial<BowlerAllocation>) => {
     const existing = byId.get(playerId)
@@ -84,6 +110,93 @@ export function BowlingPlan({
     }))
   }, [plan, xi])
 
+  const renderBowler = (p: Player, i: number) => {
+    const alloc = byId.get(p.id)
+    const overs = alloc?.overs ?? 0
+    const on = overs > 0
+    return (
+      <div
+        key={p.id}
+        className="px-3 py-2.5"
+        style={{
+          background: on ? 'rgba(233,185,73,.08)' : i % 2 ? 'rgba(255,255,255,.02)' : 'transparent',
+          borderTop: i > 0 ? `1px solid ${theme.border}66` : 'none',
+        }}
+      >
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="text-[13.5px] font-semibold truncate" style={{ color: on ? theme.gold : theme.cream }}>
+              {p.name}
+            </div>
+            <div className="disp text-[10px] tracking-wider mt-0.5" style={{ color: theme.faint }}>
+              {(p.bowlType ?? 'pace').toUpperCase()}
+            </div>
+          </div>
+
+          <div className="flex gap-1.5 shrink-0">
+            <StatBar label="DEF" value={p.bowl.def} width={40} />
+            <StatBar label="ATT" value={p.bowl.att} width={40} />
+            {(p.swing ?? 0) > 0 && <StatBar label="SWG" value={p.swing!} width={40} />}
+          </div>
+
+          {/* The most-tapped control in the game — worth a real target. */}
+          <div className="flex items-center shrink-0 ml-1">
+            <button
+              onClick={() => bump(p, -1)}
+              aria-label={`One fewer over for ${p.name}`}
+              className="disp w-11 h-11 rounded-lg text-xl font-bold active:scale-90 transition-transform"
+              style={{ background: theme.surface2, border: `1px solid ${theme.border}`, color: theme.muted }}
+            >
+              −
+            </button>
+            <div
+              className="disp num w-8 text-center text-lg font-bold"
+              style={{ color: on ? theme.gold : theme.faint }}
+            >
+              {overs}
+            </div>
+            <button
+              onClick={() => bump(p, +1)}
+              aria-label={`One more over for ${p.name}`}
+              disabled={remaining <= 0 || overs >= RULES.maxOversPerBowler}
+              className="disp w-11 h-11 rounded-lg text-xl font-bold active:scale-90 transition-transform disabled:opacity-35"
+              style={{ background: theme.surface2, border: `1px solid ${theme.border}`, color: theme.cream }}
+            >
+              +
+            </button>
+          </div>
+        </div>
+
+        {on && (
+          <div className="slide-in">
+            <div className="flex gap-1.5 mt-2">
+              {PREFS.map(([pref, label]) => (
+                <GhostButton
+                  key={pref}
+                  active={alloc?.prefs.includes(pref) ?? false}
+                  onClick={() => togglePhase(p.id, pref)}
+                  className="flex-1 !px-1 !py-2.5 !text-[10px] text-center"
+                >
+                  {label}
+                </GhostButton>
+              ))}
+            </div>
+            {(alloc?.prefs.length ?? 0) === 0 && (
+              <div className="text-[10px] mt-1.5 px-1" style={{ color: theme.red }}>
+                Pick at least one spell for {p.name}.
+              </div>
+            )}
+            {(p.swing ?? 0) >= 50 && !alloc?.prefs.includes('new-ball') && (
+              <div className="text-[10px] mt-1.5 px-1" style={{ color: theme.pitch }}>
+                {p.name} swings it — that's worth most with the new ball.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="pt-6 pb-4 pop">
       <ScreenHeader
@@ -115,91 +228,21 @@ export function BowlingPlan({
 
       <Eyebrow>WHO BOWLS, AND HOW MUCH</Eyebrow>
       <div className="rounded-xl overflow-hidden mb-4" style={{ border: `1px solid ${theme.border}` }}>
-        {bowlers.map((p, i) => {
-          const alloc = byId.get(p.id)
-          const overs = alloc?.overs ?? 0
-          const on = overs > 0
-          return (
-            <div
-              key={p.id}
-              className="px-3 py-2.5"
-              style={{
-                background: on ? 'rgba(233,185,73,.08)' : i % 2 ? 'rgba(255,255,255,.02)' : 'transparent',
-                borderBottom: i < bowlers.length - 1 ? `1px solid ${theme.border}66` : 'none',
-              }}
-            >
-              <div className="flex items-center gap-2">
-                <div className="min-w-0 flex-1">
-                  <div className="text-[13.5px] font-semibold truncate" style={{ color: on ? theme.gold : theme.cream }}>
-                    {p.name}
-                  </div>
-                  <div className="disp text-[10px] tracking-wider mt-0.5" style={{ color: theme.faint }}>
-                    {(p.bowlType ?? 'pace').toUpperCase()}
-                  </div>
-                </div>
-
-                <div className="flex gap-1.5 shrink-0">
-                  <StatBar label="DEF" value={p.bowl.def} width={40} />
-                  <StatBar label="ATT" value={p.bowl.att} width={40} />
-                  {(p.swing ?? 0) > 0 && <StatBar label="SWG" value={p.swing!} width={40} />}
-                </div>
-
-                <div className="flex items-center gap-1 shrink-0 ml-1">
-                  <button
-                    onClick={() => bump(p, -1)}
-                    aria-label={`One fewer over for ${p.name}`}
-                    className="disp w-7 h-7 rounded-lg text-lg font-bold active:scale-90 transition-transform"
-                    style={{ background: theme.surface2, border: `1px solid ${theme.border}`, color: theme.muted }}
-                  >
-                    −
-                  </button>
-                  <div
-                    className="disp num w-7 text-center text-lg font-bold"
-                    style={{ color: on ? theme.gold : theme.faint }}
-                  >
-                    {overs}
-                  </div>
-                  <button
-                    onClick={() => bump(p, +1)}
-                    aria-label={`One more over for ${p.name}`}
-                    disabled={remaining <= 0 || overs >= RULES.maxOversPerBowler}
-                    className="disp w-7 h-7 rounded-lg text-lg font-bold active:scale-90 transition-transform disabled:opacity-35"
-                    style={{ background: theme.surface2, border: `1px solid ${theme.border}`, color: theme.cream }}
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-
-              {on && (
-                <div className="slide-in">
-                  <div className="flex gap-1.5 mt-2">
-                    {PREFS.map(([pref, label]) => (
-                      <GhostButton
-                        key={pref}
-                        active={alloc?.prefs.includes(pref) ?? false}
-                        onClick={() => togglePhase(p.id, pref)}
-                        className="flex-1 !px-1 !py-1.5 !text-[9.5px] text-center"
-                      >
-                        {label}
-                      </GhostButton>
-                    ))}
-                  </div>
-                  {(alloc?.prefs.length ?? 0) === 0 && (
-                    <div className="text-[10px] mt-1.5 px-1" style={{ color: theme.red }}>
-                      Pick at least one spell for {p.name}.
-                    </div>
-                  )}
-                  {(p.swing ?? 0) >= 50 && !alloc?.prefs.includes('new-ball') && (
-                    <div className="text-[10px] mt-1.5 px-1" style={{ color: theme.pitch }}>
-                      {p.name} swings it — that's worth most with the new ball.
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )
-        })}
+        {frontline.length === 0 && (
+          <div className="px-3 py-3 text-[12px] text-center" style={{ color: theme.faint }}>
+            No frontline bowler in this side.
+          </div>
+        )}
+        {frontline.map((p, i) => renderBowler(p, i))}
+        {partTime.length > 0 && (
+          <div
+            className="disp text-[9.5px] tracking-widest px-3 py-1.5"
+            style={{ color: theme.faint, background: theme.surface2, borderTop: `1px solid ${theme.border}` }}
+          >
+            PART-TIMERS · ONLY IF YOU HAVE TO
+          </div>
+        )}
+        {partTime.map((p, i) => renderBowler(p, i))}
       </div>
 
       <Eyebrow>YOUR INNINGS SHAPE</Eyebrow>
@@ -244,15 +287,51 @@ export function BowlingPlan({
         spell to keep a bowler available across both windows.
       </div>
 
-      {issues.length > 0 && (
-        <div className="grid gap-2 mb-3">
-          {issues.map((iss, i) => <Notice key={i}>{iss.message}</Notice>)}
+      {rota.length > 0 && (
+        <div className="mb-4">
+          <Eyebrow>HOW IT WILL BOWL</Eyebrow>
+          <div
+            className="rounded-xl px-2.5 py-2 flex flex-wrap gap-x-1.5 gap-y-1"
+            style={{ background: theme.surface, border: `1px solid ${theme.border}` }}
+          >
+            {rota.map((id, i) => {
+              const p = xi.find((x) => x.id === id)
+              const over = i + 1
+              const newBall = over <= RULES.powerplayUntil
+              const death = over >= RULES.deathFrom
+              return (
+                <span
+                  key={i}
+                  className="disp text-[9.5px] px-1 py-0.5 rounded tracking-wide"
+                  title={`Over ${over} — ${p?.name ?? id}`}
+                  style={{
+                    background: newBall ? 'rgba(90,169,230,.13)' : death ? 'rgba(224,74,64,.13)' : 'transparent',
+                    color: theme.muted,
+                  }}
+                >
+                  <span className="num" style={{ color: theme.faint }}>{over}</span>{' '}
+                  {p?.name.split(' ').slice(-1)[0] ?? '?'}
+                </span>
+              )
+            })}
+          </div>
+          <div className="text-[10.5px] leading-snug mt-1.5 px-1" style={{ color: theme.faint }}>
+            Blue is the powerplay, red the death. This is the order they'll actually
+            come on — check your swing bowlers are in the blue.
+          </div>
         </div>
       )}
 
-      <PrimaryButton onClick={onNext} disabled={issues.length > 0}>
-        START THE MATCH
-      </PrimaryButton>
+      <StickyFooter>
+        {issues.length > 0 && (
+          <div className="mb-2">
+            <Notice>{issues[0].message}</Notice>
+          </div>
+        )}
+        <PrimaryButton onClick={onNext} disabled={issues.length > 0}>
+          START THE MATCH
+        </PrimaryButton>
+      </StickyFooter>
     </div>
   )
 }

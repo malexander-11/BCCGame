@@ -6,13 +6,13 @@ import { bagshotRow } from '../engine/season'
 import type { Season as SeasonState } from '../engine/season'
 import { theme } from '../theme'
 import type { Record } from '../storage'
-import { Brand, Card, Eyebrow, GhostButton, Panel, PrimaryButton } from '../components/ui'
+import { Brand, Card, Eyebrow, GhostButton, ordinal, Panel, PrimaryButton } from '../components/ui'
 
 const HOW_IT_WORKS: [string, string][] = [
-  ['Select', 'Pick eleven from the squad. You need a keeper and at least five who can bowl.'],
+  ['Select', 'Pick eleven from the squad and set their batting order. You need a keeper and at least five who can bowl.'],
   ['Plan', 'Share 45 overs between five and seven bowlers and choose their spells. Nobody bowls more than nine.'],
   ['Field', 'They bat first. Your DEF bowlers squeeze, your ATT bowlers strike — the total they post is the target.'],
-  ['Chase', 'Set your order at the interval, then bat. SKILL keeps you in, PWR gets you there.'],
+  ['Chase', 'Review your order once you know the target, then bat. SKILL keeps you in, PWR gets you there.'],
 ]
 
 const STATS: [string, string, string][] = [
@@ -24,7 +24,7 @@ const STATS: [string, string, string][] = [
 
 export function Home({
   record, season, instant, onToggleInstant,
-  onStart, onSeason, onSquad, squadSize, squadValue,
+  onStart, onSeason, onSquad, squadSize, squadAvailable, squadValue,
 }: {
   record: Record
   season: SeasonState | null
@@ -34,6 +34,8 @@ export function Home({
   onSeason: () => void
   onSquad: () => void
   squadSize: number
+  /** How many can actually play this week. Only meaningful in a season. */
+  squadAvailable?: number
   squadValue: number
 }) {
   const [tier, setTier] = useState<Tier>('derby')
@@ -58,9 +60,11 @@ export function Home({
           <div className="disp text-[17px] font-bold mt-0.5">Division 6 West</div>
           <div className="text-[11.5px] mt-1 leading-snug" style={{ color: theme.cream }}>
             {season && seasonRow
-              ? `Round ${Math.min(roundsDone + 1, 9)} of 9 · ${seasonRow.position}${
-                  ['th', 'st', 'nd', 'rd'][(seasonRow.position % 100 - 20) % 10] ?? 'th'
-                } on ${seasonRow.points} points`
+              ? roundsDone === 0
+                // Before a ball is bowled everyone is level, so a position here
+                // would be alphabetical noise dressed up as a standing.
+                ? `Round 1 of 9 · not a ball bowled yet`
+                : `Round ${Math.min(roundsDone + 1, 9)} of 9 · ${ordinal(seasonRow.position)} on ${seasonRow.points} points`
               : 'Nine fixtures against the clubs Bagshot actually play. They finished 7th last year.'}
           </div>
         </div>
@@ -76,9 +80,13 @@ export function Home({
               THE SQUAD
             </div>
             <div className="disp num text-[15px] font-bold mt-0.5">
-              {squadSize} available
+              {squadAvailable === undefined || squadAvailable === squadSize
+                ? `${squadSize} players`
+                : `${squadAvailable} available`}
               <span className="text-[12px] font-normal ml-2" style={{ color: theme.muted }}>
-                £{squadValue.toFixed(1)}m on the books
+                {squadAvailable !== undefined && squadAvailable < squadSize
+                  ? `${squadSize - squadAvailable} out · £${squadValue.toFixed(1)}m on the books`
+                  : `£${squadValue.toFixed(1)}m on the books`}
               </span>
             </div>
           </div>
@@ -189,7 +197,7 @@ export function Home({
           active={instant}
           className="flex-1 text-center !py-3 !text-[12px]"
         >
-          {instant ? 'INSTANT ON' : 'INSTANT OFF'}
+          INSTANT · {instant ? 'ON' : 'OFF'}
         </GhostButton>
       </div>
 

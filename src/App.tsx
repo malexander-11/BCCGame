@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { BowlingPlan as Plan, Club, InningsResult, MatchResult, Player } from './data/types'
 import { autoBattingOrder, autoSelectXI } from './engine/ai'
 import { buildMatchResult, simulateBattingInnings, simulateFieldingInnings } from './engine/match'
@@ -52,6 +52,68 @@ export default function App() {
   // Scroll back to the top on every screen change — long scorecards otherwise
   // drop you into the middle of the next screen.
   useEffect(() => { window.scrollTo({ top: 0 }) }, [screen])
+
+  // ----------------------------------------------------------- browser back
+  //
+  // Without this the phone's back gesture leaves the app altogether and an
+  // in-progress match is gone. One guard entry sits on the history stack
+  // whenever we're off the home screen; back consumes it, we work out where to
+  // go, and put another one back.
+
+  const screenRef = useRef(screen)
+  const guardRef = useRef(false)
+  useEffect(() => { screenRef.current = screen }, [screen])
+
+  /**
+   * Where back goes from each screen. `null` means let the browser leave.
+   *
+   * Once the first innings has been bowled there is deliberately no route back
+   * into selection or the plan: re-planning after seeing the total would be
+   * bowling the innings twice. The sims instead treat back as SKIP, and the
+   * innings break simply stays put rather than trapping you in a loop.
+   */
+  const backTarget = useCallback((from: Screen): Screen | null => {
+    switch (from) {
+      case 'home': return null
+      case 'squad': return 'home'
+      case 'season': return 'home'
+      case 'stats': return 'season'
+      case 'selection': return inLeague ? 'season' : 'home'
+      case 'plan': return 'selection'
+      case 'sim1': return 'break'
+      case 'break': return 'break'
+      case 'order': return 'break'
+      case 'sim2': return 'result'
+      case 'result': return inLeague ? 'season' : 'home'
+    }
+  }, [inLeague])
+
+  const backTargetRef = useRef(backTarget)
+  useEffect(() => { backTargetRef.current = backTarget }, [backTarget])
+
+  useEffect(() => {
+    const onPop = () => {
+      guardRef.current = false          // the browser just consumed our guard
+      const from = screenRef.current
+      const to = backTargetRef.current(from)
+      if (to === null) return           // already home — let them actually go
+      window.history.pushState({ bccGuard: true }, '')
+      guardRef.current = true
+      if (to !== from) {
+        if (to === 'home') setInLeague(false)
+        setScreen(to)
+      }
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
+
+  useEffect(() => {
+    if (screen !== 'home' && !guardRef.current) {
+      window.history.pushState({ bccGuard: true }, '')
+      guardRef.current = true
+    }
+  }, [screen])
 
   const persistSquad = useCallback((next: Player[]) => {
     setSquad(next)
@@ -256,7 +318,10 @@ export default function App() {
             onAuto={() => {
               const picked = autoSelectXI(pickable)
               setXi(picked)
-              setPlan(autoPlan(picked))
+              // Only fill the attack if there isn't one. Coming back to
+              // selection and tapping AUTO shouldn't bin a plan you built by
+              // hand — the effect below drops any bowler who's no longer in.
+              setPlan((prev) => (prev.length === 0 ? autoPlan(picked) : prev))
             }}
             onBack={() => setScreen(homeScreen)}
             onNext={() => {
@@ -273,6 +338,7 @@ export default function App() {
             xi={xi}
             opponent={opponent}
             plan={plan}
+            seed={seed}
             onChange={setPlan}
             onAuto={() => setPlan(autoPlan(xi))}
             onBack={() => setScreen('selection')}
@@ -351,6 +417,9 @@ export default function App() {
             instant={prefs.instant}
             onToggleInstant={toggleInstant}
             squadSize={squad.length}
+            squadAvailable={
+              season ? availablePlayers(squad, season.availability).length : undefined
+            }
             squadValue={squad.reduce((sum, p) => sum + p.value, 0)}
             onStart={(club) => startMatch(club, false)}
             onSeason={openSeason}

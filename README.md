@@ -130,15 +130,20 @@ Anyone since dropped from the squad or unavailable simply isn't there.
 1. **Selection** — eleven from the squad **in batting order**. The side you
    picked last week loads automatically, minus anyone now unavailable, so a
    settled team is a glance and a tap; gaps are left where players are missing
-   rather than filled with silent replacements. Tap two names in the XI panel to
-   swap them. You need a keeper and at least five who can bowl, and `AUTO` picks
-   a legal side if you'd rather not.
+   rather than filled with silent replacements. Reorder with the `▲▼` arrows, or
+   tap two names to swap them outright. Anyone unavailable is hidden by default
+   — one toggle brings them back if you want to see what you're missing. You
+   need a keeper and at least five who can bowl, and `AUTO` picks a legal side.
 2. **The attack** — share 45 overs between five and seven bowlers, max nine
    each, and give each one *or more* spells: new ball, middle, death. A bowler
-   set to two is available across both windows. The engine builds the
-   over-by-over rota from that, and nobody bowls two overs in a row.
-3. **Fielding innings** — they bat. Wickets, drops, maidens, extras and full
-   bowling figures. Their total is your target.
+   set to two is available across both windows. Your frontline sits above the
+   part-timers, sorted by what they're actually here for, and a preview strip
+   shows the **over-by-over rota you'll actually get** — seeded from the match
+   itself, so it isn't an estimate. Nobody bowls two overs in a row.
+3. **Fielding innings** — they bat. The scoreboard carries the two men at the
+   crease with their runs and balls, and the feed runs a scorebook strip for
+   every over (`. 1 4 . W 2`), so every single ball is visible. Pause, run it at
+   4×, or skip it entirely.
 4. **Interval** — your order shown back with the target now known. Most weeks
    you walk straight past it; it's there for the weeks 280 to chase wants your
    hitter promoted.
@@ -148,6 +153,11 @@ Anyone since dropped from the squad or unavailable simply isn't there.
    and level with the rate is not level at all.
 6. **Result** — both scorecards, bowling figures, fall of wickets, and a man of
    the match.
+
+The phone's back gesture steps back through the app rather than leaving it.
+Once an innings has been bowled there's deliberately no route back into
+selection or the plan — re-planning after seeing the total would be bowling it
+twice — so back during a sim skips to the end of that innings instead.
 
 ---
 
@@ -329,11 +339,19 @@ editing the squad can't move the calibration.
 It also checks that better ratings win more often, that no bowler exceeds nine
 overs or bowls consecutively, that split spells can't produce an illegal rota,
 that the DLS resource table is monotonic and pars correctly at both ends of an
-innings, that swing fires inside its window and nowhere else, that availability
-stays in its three-to-five bands, that form stays in range and actually changes
-what you score, that fresh air games and walk-outs can never leave you unable to
-field a legal XI, and that a season lands in the intended difficulty band. All
-45 checks pass.
+innings, that swing fires inside its window and nowhere else, that an
+availability score means what it says at every point on the scale, that form
+stays in range and actually changes what you score, that fresh air games and
+walk-outs can never leave you unable to field a legal XI, and that a season
+lands in the intended difficulty band.
+
+Three of them keep the display honest rather than the simulation: the scorebook
+strip has to reconcile with its own over — six legal balls, wickets and runs
+matching the summary — the crease snapshot can never show a batter who is
+already out, and the rota preview on the plan screen has to name the bowler who
+really bowls each over. A preview that lied would be worse than no preview.
+
+All 54 checks pass.
 
 The mirror-match check plays a side against itself: the chasing side wins 55.5%,
 in line with real limited-overs cricket, where knowing the target is worth

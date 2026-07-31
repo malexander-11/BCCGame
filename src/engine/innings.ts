@@ -150,6 +150,8 @@ export function simulateInnings(input: InningsInput): InningsResult {
     let wktsThisOver = 0
     let bowlerRunsThisOver = 0
     let freeHit = false
+    /** Scorebook strip for this over — one token per delivery, extras included. */
+    const ballTokens: string[] = []
 
     while (ballsThisOver < RULES.ballsPerOver && !inningsOver()) {
       const batter = batters[striker]
@@ -184,6 +186,7 @@ export function simulateInnings(input: InningsInput): InningsResult {
         runs++; extras.wides++; extras.total++
         bowlerCard.wides++; bowlerCard.runs++
         runsThisOver++; bowlerRunsThisOver++
+        ballTokens.push('wd')
         continue
       }
       if (rng() < 0.0075 * looseness) {
@@ -191,6 +194,7 @@ export function simulateInnings(input: InningsInput): InningsResult {
         bowlerCard.noBalls++; bowlerCard.runs++
         runsThisOver++; bowlerRunsThisOver++
         freeHit = true
+        ballTokens.push('nb')
         continue
       }
 
@@ -263,6 +267,9 @@ export function simulateInnings(input: InningsInput): InningsResult {
               : `${keeper.name} shells one behind the stumps`
             : `${fielderOf(fieldingXI, bowler.player, keeper, kind, rng).name} puts down ${card.name}`
           say('drop', `DROPPED! ${grassed}`, over)
+          // A let-off is scored as the runs taken — the commentary carries the
+          // drama, the strip just records what went on the board.
+          ballTokens.push(String(gift))
           if (gift % 2 === 1) [striker, nonStriker] = [nonStriker, striker]
           continue
         }
@@ -277,6 +284,7 @@ export function simulateInnings(input: InningsInput): InningsResult {
           score: runs, wkt: wickets, batter: card.name, at: formatOvers(balls),
         })
         say('wicket', `OUT! ${card.name} ${dismissal.text} — ${card.runs} (${card.balls})`, over)
+        ballTokens.push('W')
 
         if (wickets >= RULES.wickets || nextIn >= battingOrder.length) break
         striker = nextIn
@@ -299,7 +307,10 @@ export function simulateInnings(input: InningsInput): InningsResult {
           else extras.byes += bye
           extras.total += bye
           runsThisOver += bye
+          ballTokens.push(`${bye}${leg ? 'lb' : 'b'}`)
           if (bye % 2 === 1) [striker, nonStriker] = [nonStriker, striker]
+        } else {
+          ballTokens.push('.')
         }
       } else {
         runs += scored
@@ -307,6 +318,7 @@ export function simulateInnings(input: InningsInput): InningsResult {
         runsThisOver += scored
         bowlerRunsThisOver += scored
         bowlerCard.runs += scored
+        ballTokens.push(String(scored))
         if (scored === 4) card.fours++
         if (scored === 6) card.sixes++
 
@@ -341,6 +353,17 @@ export function simulateInnings(input: InningsInput): InningsResult {
       say('maiden', `Maiden over — ${bowlerCard.name}`, over)
     }
 
+    // Snapshot the crease *before* the ends change below, so `onStrike` means
+    // "faced the last ball" rather than "will face the next one".
+    const atCrease = [striker, nonStriker]
+      .filter((i) => i < cards.length && cards[i].batted && cards[i].out === null)
+      .map((i) => ({
+        name: cards[i].name,
+        runs: cards[i].runs,
+        balls: cards[i].balls,
+        onStrike: i === striker,
+      }))
+
     overSummaries.push({
       over,
       bowlerName: bowlerCard.name,
@@ -348,6 +371,8 @@ export function simulateInnings(input: InningsInput): InningsResult {
       wkts: wktsThisOver,
       total: runs,
       totalWkts: wickets,
+      balls: ballTokens,
+      atCrease,
     })
 
     // Ends change at the end of every completed over.

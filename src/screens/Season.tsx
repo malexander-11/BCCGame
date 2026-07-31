@@ -6,13 +6,9 @@ import { roundNews, unavailableMap } from '../engine/availability'
 import type { EventKind } from '../engine/availability'
 import { formatOvers } from '../engine/innings'
 import { theme } from '../theme'
-import { Card, Eyebrow, GhostButton, Notice, PrimaryButton, ScreenHeader } from '../components/ui'
-
-const ordinal = (n: number) => {
-  const s = ['th', 'st', 'nd', 'rd']
-  const v = n % 100
-  return n + (s[(v - 20) % 10] ?? s[v] ?? s[0])
-}
+import {
+  Card, ConfirmButton, Eyebrow, GhostButton, Notice, ordinal, PrimaryButton, ScreenHeader,
+} from '../components/ui'
 
 const NEWS_COLOUR: Record<EventKind, string> = {
   away: theme.pitch,
@@ -61,10 +57,12 @@ export function Season({
         right={
           <div className="text-right">
             <div className="disp num text-xl font-bold leading-none" style={{ color: theme.gold }}>
-              {ordinal(us.position)}
+              {/* Everyone is level on nought before round one, so a position
+                  here would be alphabetical noise dressed up as a standing. */}
+              {season.results.length === 0 ? '—' : ordinal(us.position)}
             </div>
             <div className="disp text-[10px] tracking-wider" style={{ color: theme.faint }}>
-              {us.points} PTS
+              {season.results.length === 0 ? 'NOT STARTED' : `${us.points} PTS`}
             </div>
           </div>
         }
@@ -139,12 +137,19 @@ export function Season({
       )}
 
       <div className="flex gap-2 mb-3">
-        <GhostButton onClick={onStats} className="flex-1 text-center">STATS</GhostButton>
-        <GhostButton onClick={onToggleInstant} active={instant} className="flex-1 text-center">
-          {instant ? 'INSTANT ON' : 'INSTANT OFF'}
+        <GhostButton onClick={onStats} className="flex-1 text-center !py-2.5">STATS</GhostButton>
+        <GhostButton onClick={onToggleInstant} active={instant} className="flex-1 text-center !py-2.5">
+          INSTANT · {instant ? 'ON' : 'OFF'}
         </GhostButton>
         {!done && (
-          <GhostButton onClick={onSimRest} className="!px-3">SIM REST</GhostButton>
+          // It hands the rest of the *season* to the auto manager, not the round.
+          <ConfirmButton
+            onConfirm={onSimRest}
+            confirmLabel="SURE? YOU WON'T PICK AGAIN"
+            className="!px-3 !py-2.5"
+          >
+            SIM SEASON
+          </ConfirmButton>
         )}
       </div>
 
@@ -268,13 +273,25 @@ export function Season({
       )}
 
       <div className="mt-4">
-        <GhostButton
-          onClick={onAbandon}
-          className="w-full text-center !py-2.5"
-          style={{ color: theme.red, borderColor: `${theme.red}55` }}
-        >
-          {done ? 'START A NEW SEASON' : 'ABANDON SEASON'}
-        </GhostButton>
+        {done ? (
+          // Nothing left to lose once the season's over, so no second thoughts.
+          <GhostButton
+            onClick={onAbandon}
+            className="w-full text-center !py-2.5"
+            style={{ color: theme.red, borderColor: `${theme.red}55` }}
+          >
+            START A NEW SEASON
+          </GhostButton>
+        ) : (
+          <ConfirmButton
+            onConfirm={onAbandon}
+            confirmLabel={`SURE? ${season.results.length} ROUND${season.results.length === 1 ? '' : 'S'} WILL BE LOST`}
+            className="w-full text-center !py-2.5"
+            style={{ color: theme.red, borderColor: `${theme.red}55` }}
+          >
+            ABANDON SEASON
+          </ConfirmButton>
+        )}
       </div>
     </div>
   )

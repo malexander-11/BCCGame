@@ -57,6 +57,38 @@ html, body, #root {
 
 button { -webkit-tap-highlight-color: transparent; }
 
+/*
+ * The tap highlight above is removed on purpose — it clashes with the panels.
+ * That leaves keyboard users with nothing, so put a real ring back for them.
+ * :focus-visible only fires for keyboard focus, so taps stay clean.
+ */
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid #E9B949;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/*
+ * A wicket flashes the scoreboard and every screen slides in. Good fun, but
+ * motion sensitivity is real and a 45-over innings is a lot of flashing.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .pop, .flash-gold, .flash-red, .slide-in {
+    animation: fadeOnly .2s ease-out;
+  }
+  @keyframes fadeOnly {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+  * {
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: #23402F; border-radius: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }

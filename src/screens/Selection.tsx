@@ -6,7 +6,7 @@ import { formBand } from '../engine/form'
 import { theme } from '../theme'
 import {
   availabilityColour, Eyebrow, GhostButton, Notice, PrimaryButton, ScreenHeader,
-  StatBar, roleColour, roleOf,
+  StatBar, StickyFooter, roleColour, roleOf,
 } from '../components/ui'
 
 export interface SelectionIssue { message: string }
@@ -59,6 +59,8 @@ export function Selection({
 }) {
   const [sort, setSort] = useState<Sort>('batting')
   const [pickedOnly, setPickedOnly] = useState(false)
+  /** Hide players who can't play this week. On by default when there are any. */
+  const [availableOnly, setAvailableOnly] = useState(true)
   /** Slot currently picked up, waiting for somewhere to go. */
   const [held, setHeld] = useState<number | null>(null)
 
@@ -73,6 +75,18 @@ export function Selection({
     setHeld(null)
   }
 
+  /** Nudge a player one place up or down the order. */
+  const shift = (i: number, by: -1 | 1) => {
+    const j = i + by
+    if (j < 0 || j >= selected.length) return
+    const next = [...selected]
+    const a = next[i]
+    next[i] = next[j]
+    next[j] = a
+    onReorder(next)
+    setHeld(null)
+  }
+
   const out = unavailable ?? new Map<string, string>()
   const ids = useMemo(() => new Set(selected.map((p) => p.id)), [selected])
   const keeperAvailable = squad.some((p) => p.wk && !out.has(p.id))
@@ -81,7 +95,11 @@ export function Selection({
   const keeper = selected.some((p) => p.wk)
 
   const listed = useMemo(() => {
-    const rows = pickedOnly ? squad.filter((p) => ids.has(p.id)) : [...squad]
+    const rows = pickedOnly
+      ? squad.filter((p) => ids.has(p.id))
+      // Anyone unavailable is dead weight between you and the button, so hide
+      // them by default — the team news screen is where you read the reasons.
+      : squad.filter((p) => !availableOnly || !out.has(p.id) || ids.has(p.id))
     const byName = (a: Player, b: Player) => {
       // Unavailable players sink to the bottom of whatever sort is active.
       const oa = out.has(a.id) ? 1 : 0
@@ -100,7 +118,7 @@ export function Selection({
       default:
         return then((a, b) => batIndex(b) - batIndex(a))
     }
-  }, [squad, sort, pickedOnly, ids, out, forms])
+  }, [squad, sort, pickedOnly, availableOnly, ids, out, forms])
 
   return (
     <div className="pt-6 pb-4 pop">
@@ -153,10 +171,9 @@ export function Selection({
           selected.map((p, i) => {
             const holding = held === i
             return (
-              <button
+              <div
                 key={p.id}
-                onClick={() => swap(i)}
-                className="w-full text-left px-3 py-1.5 flex items-center gap-2.5 active:scale-[0.995] transition-all"
+                className="flex items-stretch"
                 style={{
                   background: holding
                     ? 'rgba(233,185,73,.20)'
@@ -166,22 +183,46 @@ export function Selection({
                   outlineOffset: -1,
                 }}
               >
-                <span
-                  className="disp num w-5 text-center text-[13px] font-bold shrink-0"
-                  style={{ color: holding ? theme.gold : theme.faint }}
+                <button
+                  onClick={() => swap(i)}
+                  className="text-left pl-3 pr-2 py-2 flex items-center gap-2.5 flex-1 min-w-0
+                             active:scale-[0.995] transition-all"
+                  style={{ minHeight: 44 }}
                 >
-                  {i + 1}
-                </span>
-                <span className="text-[13px] font-semibold truncate flex-1" style={{ color: holding ? theme.gold : theme.cream }}>
-                  {p.name}
-                  {p.wk && (
-                    <span className="disp text-[9px] ml-1.5 tracking-wider" style={{ color: theme.sky }}>†</span>
-                  )}
-                </span>
-                <span className="disp num text-[10px] shrink-0" style={{ color: theme.faint }}>
-                  {p.bat.skill}/{p.bat.pwr}
-                </span>
-              </button>
+                  <span
+                    className="disp num w-5 text-center text-[13px] font-bold shrink-0"
+                    style={{ color: holding ? theme.gold : theme.faint }}
+                  >
+                    {i + 1}
+                  </span>
+                  <span className="text-[13px] font-semibold truncate flex-1" style={{ color: holding ? theme.gold : theme.cream }}>
+                    {p.name}
+                    {p.wk && (
+                      <span className="disp text-[9px] ml-1.5 tracking-wider" style={{ color: theme.sky }}>†</span>
+                    )}
+                  </span>
+                  <span className="disp num text-[10px] shrink-0" style={{ color: theme.faint }}>
+                    {p.bat.skill}/{p.bat.pwr}
+                  </span>
+                </button>
+
+                {/* One place at a time. Tap-to-swap above still handles long moves. */}
+                <div className="flex shrink-0">
+                  {([[-1, '▲', 'up'], [1, '▼', 'down']] as const).map(([by, glyph, word]) => (
+                    <button
+                      key={word}
+                      onClick={() => shift(i, by)}
+                      disabled={by === -1 ? i === 0 : i === selected.length - 1}
+                      aria-label={`Move ${p.name} ${word} the order`}
+                      className="disp text-[11px] w-9 flex items-center justify-center
+                                 active:scale-90 transition-transform disabled:opacity-25"
+                      style={{ color: theme.muted, borderLeft: `1px solid ${theme.border}55` }}
+                    >
+                      {glyph}
+                    </button>
+                  ))}
+                </div>
+              </div>
             )
           })
         )}
@@ -195,24 +236,35 @@ export function Selection({
         </div>
       )}
 
-      <div className="flex gap-1.5 mb-3">
+      <div className="flex gap-1.5 mb-2">
         {SORTS.map(([s, label]) => (
           <GhostButton
             key={s}
             active={sort === s && !pickedOnly}
             onClick={() => { setSort(s); setPickedOnly(false) }}
-            className="flex-1 !px-1 text-center"
+            className="flex-1 !px-1 text-center !py-2.5"
           >
             {label}
           </GhostButton>
         ))}
+      </div>
+      <div className="flex gap-1.5 mb-3">
         <GhostButton
           active={pickedOnly}
           onClick={() => setPickedOnly((v) => !v)}
-          className="!px-3"
+          className="flex-1 text-center !py-2.5"
         >
-          PICKED
+          PICKED ONLY
         </GhostButton>
+        {out.size > 0 && (
+          <GhostButton
+            active={availableOnly}
+            onClick={() => setAvailableOnly((v) => !v)}
+            className="flex-1 text-center !py-2.5"
+          >
+            {availableOnly ? `HIDING ${out.size} OUT` : `SHOWING ${out.size} OUT`}
+          </GhostButton>
+        )}
       </div>
 
       <Eyebrow>
@@ -322,17 +374,16 @@ export function Selection({
         </div>
       )}
 
-      {issues.length > 0 && (
-        <div className="mt-3 grid gap-2">
-          {issues.map((iss, i) => <Notice key={i}>{iss.message}</Notice>)}
-        </div>
-      )}
-
-      <div className="mt-4">
+      <StickyFooter>
+        {issues.length > 0 && (
+          <div className="mb-2">
+            <Notice>{issues[0].message}</Notice>
+          </div>
+        )}
         <PrimaryButton onClick={onNext} disabled={issues.length > 0}>
-          SET THE ATTACK
+          {issues.length > 0 ? `${selected.length}/11 PICKED` : 'SET THE ATTACK'}
         </PrimaryButton>
-      </div>
+      </StickyFooter>
     </div>
   )
 }

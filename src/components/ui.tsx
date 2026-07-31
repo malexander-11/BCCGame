@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { card, panel, ratingColour, theme } from '../theme'
 
@@ -160,6 +161,65 @@ export function Brand() {
   )
 }
 
+/**
+ * The screen's primary action, pinned to the bottom of the viewport.
+ *
+ * Selection runs to well over two thousand pixels on a phone. Without this you
+ * scroll the whole squad twice — once to pick, once to reach the button.
+ */
+export function StickyFooter({ children }: { children: ReactNode }) {
+  return (
+    <div
+      className="sticky bottom-0 z-10 pt-3 pb-3 mt-4"
+      style={{
+        // Fades the list out under the bar rather than cutting it off.
+        background: `linear-gradient(to top, ${theme.bg} 68%, ${theme.bg}00)`,
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+/**
+ * A button that wants asking twice.
+ *
+ * Abandoning a season or resetting the squad throws away real work, and both
+ * were a single tap. First tap arms and relabels, second commits, and it
+ * disarms itself after a few seconds so it can't sit armed and catch you out.
+ */
+export function ConfirmButton({
+  children, confirmLabel = 'SURE? TAP AGAIN', onConfirm, className = '', style,
+}: {
+  children: ReactNode
+  confirmLabel?: string
+  onConfirm: () => void
+  className?: string
+  style?: CSSProperties
+}) {
+  const [armed, setArmed] = useState(false)
+
+  useEffect(() => {
+    if (!armed) return
+    const t = setTimeout(() => setArmed(false), 3000)
+    return () => clearTimeout(t)
+  }, [armed])
+
+  return (
+    <GhostButton
+      onClick={() => {
+        if (!armed) { setArmed(true); return }
+        setArmed(false)
+        onConfirm()
+      }}
+      className={className}
+      style={armed ? { ...style, background: theme.redDeep, color: theme.cream, borderColor: theme.red } : style}
+    >
+      {armed ? confirmLabel : children}
+    </GhostButton>
+  )
+}
+
 /** Inline validation message. */
 export function Notice({ children, tone = 'warn' }: { children: ReactNode; tone?: 'warn' | 'ok' }) {
   const colour = tone === 'ok' ? theme.green : theme.red
@@ -190,6 +250,20 @@ export function roleColour(role: string): string {
     case 'BOWL': return theme.red
     default: return theme.green
   }
+}
+
+/**
+ * 1 → "1st", 2 → "2nd", 11 → "11th".
+ *
+ * The `(v - 20) % 10` index goes negative for anything under twenty, which is
+ * exactly what we want for the teens — `s[-9]` is undefined so it falls through
+ * to `s[v]` and 13 gets "th". Drop that second fallback and every position from
+ * one to nine silently comes out as "1th".
+ */
+export function ordinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd']
+  const v = n % 100
+  return n + (s[(v - 20) % 10] ?? s[v] ?? s[0])
 }
 
 /** Colour a 0-10 availability score. Green turns up, red barely plays. */

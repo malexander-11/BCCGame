@@ -139,6 +139,15 @@ export interface BallEvent {
   wkts: number
 }
 
+/** One batter as he stood at the end of an over. */
+export interface CreaseBatter {
+  name: string
+  runs: number
+  balls: number
+  /** He faced the last ball of the over — so he'll be off strike for the next. */
+  onStrike: boolean
+}
+
 export interface OverSummary {
   over: number
   bowlerName: string
@@ -147,6 +156,16 @@ export interface OverSummary {
   /** Running team total at the end of this over. */
   total: number
   totalWkts: number
+  /**
+   * Every delivery in the over, scorebook-style: `.` `1` `4` `W` `wd` `nb`
+   * `1b` `2lb`. Extras mean an over can run to more than six.
+   */
+  balls: string[]
+  /**
+   * Who was in at the end of the over, striker first. One entry when the last
+   * man is stranded, none when the innings ended on the last ball.
+   */
+  atCrease: CreaseBatter[]
 }
 
 export interface FowEntry {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { RULES } from '../data/types'
-import type { BallEvent, InningsResult } from '../data/types'
+import type { BallEvent, InningsResult, OverSummary } from '../data/types'
 import { formatOvers } from '../engine/innings'
 import { dlsPar } from '../engine/dls'
 import { theme } from '../theme'
@@ -9,7 +9,7 @@ import { Eyebrow, GhostButton } from '../components/ui'
 /** Over-by-over playback. Slows down when something actually happens. */
 const TICK_MS = 380
 const TICK_BIG_MS = 950
-const FEED_LENGTH = 7
+const FEED_LENGTH = 14
 
 function colourFor(type: BallEvent['type']): string {
   switch (type) {
@@ -22,7 +22,25 @@ function colourFor(type: BallEvent['type']): string {
   }
 }
 
+/** Scorebook token colouring — a wicket should jump out of the strip. */
+function tokenStyle(token: string): { colour: string; weight: number } {
+  if (token === 'W') return { colour: theme.red, weight: 800 }
+  if (token === '4' || token === '6') return { colour: theme.gold, weight: 800 }
+  if (token === '.') return { colour: theme.faint, weight: 400 }
+  if (/[a-z]/.test(token)) return { colour: theme.sky, weight: 600 }  // wd, nb, b, lb
+  return { colour: theme.cream, weight: 600 }
+}
+
 const BIG_EVENTS: BallEvent['type'][] = ['wicket', 'ton', 'win', 'drop']
+
+/**
+ * The feed mixes two things: a scorebook strip for each completed over, and the
+ * notable moments inside it. The strip means every single ball is visible
+ * without the playback having to tick 270 times an innings.
+ */
+type FeedItem =
+  | { kind: 'over'; key: string; over: OverSummary }
+  | { kind: 'event'; key: string; event: BallEvent }
 
 export function Sim({
   innings, eyebrow, title, onDone,
@@ -33,9 +51,10 @@ export function Sim({
   onDone: () => void
 }) {
   const [step, setStep] = useState(0)
-  const [feed, setFeed] = useState<BallEvent[]>([])
+  const [feed, setFeed] = useState<FeedItem[]>([])
   const [flash, setFlash] = useState<string | null>(null)
   const [speed, setSpeed] = useState(1)
+  const [paused, setPaused] = useState(false)
 
   const done = useRef(false)
   const seenOvers = useRef(new Set<number>())
@@ -57,19 +76,26 @@ export function Sim({
     if (!seenOvers.current.has(summary.over)) {
       seenOvers.current.add(summary.over)
       const fresh = innings.events.filter((e) => e.over === summary.over)
-      if (fresh.length > 0) {
-        setFeed((prev) => [...fresh.slice().reverse(), ...prev].slice(0, FEED_LENGTH))
-        const big = fresh.find((e) => BIG_EVENTS.includes(e.type))
-        if (big) {
-          setFlash(`${big.type === 'wicket' ? 'red' : 'gold'}-${step}`)
-          delay = TICK_BIG_MS
-        }
+      const items: FeedItem[] = [
+        { kind: 'over', key: `o${summary.over}`, over: summary },
+        ...fresh.slice().reverse().map((e, i) => ({
+          kind: 'event' as const, key: `e${summary.over}-${i}`, event: e,
+        })),
+      ]
+      setFeed((prev) => [...items, ...prev].slice(0, FEED_LENGTH))
+      const big = fresh.find((e) => BIG_EVENTS.includes(e.type))
+      if (big) {
+        setFlash(`${big.type === 'wicket' ? 'red' : 'gold'}-${step}`)
+        delay = TICK_BIG_MS
       }
     }
 
+    // Pausing simply stops scheduling the next tick — the feed and the score
+    // stay exactly where they are.
+    if (paused) return
     const t = setTimeout(() => setStep((s) => s + 1), delay / speed)
     return () => clearTimeout(t)
-  }, [step, speed, overs, innings.events, onDone])
+  }, [step, speed, paused, overs, innings.events, onDone])
 
   const finished = step >= overs.length
   const now = overs[Math.min(step, overs.length - 1)]
@@ -87,6 +113,9 @@ export function Sim({
   const dls = chasing ? dlsPar(innings.target! - 1, runs, wkts, ballsBowled) : null
 
   const flashClass = flash ? (flash.startsWith('red') ? 'flash-red' : 'flash-gold') : ''
+  // The two men in the middle, as they stood at the end of the last completed
+  // over. The single most useful thing on this screen during a chase.
+  const atCrease = finished || !now ? [] : now.atCrease
 
   return (
     <div className="pt-8 pop">
@@ -103,6 +132,8 @@ export function Sim({
         <div
           className="disp num font-extrabold leading-none"
           style={{ fontSize: 76, color: chasing && need === 0 ? theme.gold : theme.cream }}
+          aria-live="polite"
+          aria-atomic="true"
         >
           {runs}
           <span style={{ color: theme.faint }}>/</span>
@@ -117,6 +148,41 @@ export function Sim({
           </div>
         )}
       </div>
+
+      {atCrease.length > 0 && (
+        <div
+          className="rounded-xl mt-2 overflow-hidden"
+          style={{ background: theme.surface, border: `1px solid ${theme.border}` }}
+        >
+          <div
+            className="disp text-[9px] tracking-widest px-3 py-1.5"
+            style={{ color: theme.faint, background: theme.surface2 }}
+          >
+            AT THE CREASE
+          </div>
+          {atCrease.map((b, i) => (
+            <div
+              key={b.name}
+              className="px-3 py-1.5 flex items-baseline gap-2"
+              style={{ borderTop: i > 0 ? `1px solid ${theme.border}55` : 'none' }}
+            >
+              <span
+                className="text-[13px] font-semibold truncate flex-1"
+                style={{ color: b.onStrike ? theme.gold : theme.cream }}
+              >
+                {b.name}
+                {b.onStrike && <span className="disp ml-1" style={{ color: theme.gold }}>*</span>}
+              </span>
+              <span className="disp num text-[15px] font-bold shrink-0">
+                {b.runs}
+                <span className="text-[11px] font-normal ml-1" style={{ color: theme.faint }}>
+                  ({b.balls})
+                </span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {chasing && (
         <div className="grid grid-cols-2 gap-2 mt-2">
@@ -171,41 +237,87 @@ export function Sim({
       )}
 
       <div className="mt-4">
-        <Eyebrow>COMMENTARY</Eyebrow>
-        <div className="rounded-xl px-3 py-2 min-h-[168px]" style={{ background: theme.surface, border: `1px solid ${theme.border}` }}>
+        <Eyebrow>BALL BY BALL</Eyebrow>
+        <div className="rounded-xl px-3 py-2" style={{ background: theme.surface, border: `1px solid ${theme.border}` }}>
           {feed.length === 0 ? (
             <div className="text-[12px] py-3 text-center" style={{ color: theme.faint }}>
               Players are out in the middle…
             </div>
           ) : (
-            feed.map((e, i) => (
-              <div
-                key={`${e.ball}-${e.type}-${i}`}
-                className={`flex gap-2 py-1.5 text-[12.5px] leading-snug ${i === 0 ? 'slide-in' : ''}`}
-                style={{
-                  borderBottom: i < feed.length - 1 ? `1px solid ${theme.border}44` : 'none',
-                  opacity: 1 - i * 0.1,
-                }}
-              >
-                <span className="disp num text-[11px] shrink-0 w-8" style={{ color: theme.faint }}>
-                  {formatOvers(e.ball)}
-                </span>
-                <span style={{ color: colourFor(e.type) }}>{e.text}</span>
-              </div>
-            ))
+            feed.map((item, i) => {
+              const fading = { opacity: 1 - Math.min(i, 8) * 0.07 }
+              const rule = i < feed.length - 1 ? `1px solid ${theme.border}44` : 'none'
+              if (item.kind === 'over') {
+                const o = item.over
+                return (
+                  <div
+                    key={item.key}
+                    className={`flex items-baseline gap-2 py-1.5 ${i === 0 ? 'slide-in' : ''}`}
+                    style={{ borderBottom: rule, ...fading }}
+                  >
+                    <span className="disp num text-[11px] shrink-0 w-6" style={{ color: theme.faint }}>
+                      {o.over}
+                    </span>
+                    <span
+                      className="disp text-[10px] shrink-0 w-[4.5rem] truncate tracking-wide"
+                      style={{ color: theme.muted }}
+                    >
+                      {o.bowlerName.split(' ').slice(-1)[0].toUpperCase()}
+                    </span>
+                    <span className="flex gap-1 flex-wrap flex-1">
+                      {o.balls.map((t, bi) => {
+                        const s = tokenStyle(t)
+                        return (
+                          <span
+                            key={bi}
+                            className="disp num text-[11.5px]"
+                            style={{ color: s.colour, fontWeight: s.weight }}
+                          >
+                            {t}
+                          </span>
+                        )
+                      })}
+                    </span>
+                    <span className="disp num text-[11px] shrink-0" style={{ color: theme.muted }}>
+                      {o.runs}
+                    </span>
+                  </div>
+                )
+              }
+              const e = item.event
+              return (
+                <div
+                  key={item.key}
+                  className="flex gap-2 py-1.5 text-[12.5px] leading-snug"
+                  style={{ borderBottom: rule, ...fading }}
+                >
+                  <span className="disp num text-[11px] shrink-0 w-8" style={{ color: theme.faint }}>
+                    {formatOvers(e.ball)}
+                  </span>
+                  <span style={{ color: colourFor(e.type) }}>{e.text}</span>
+                </div>
+              )
+            })
           )}
         </div>
       </div>
 
       <div className="flex gap-2 mt-4">
         {[1, 2, 4].map((s) => (
-          <GhostButton key={s} active={speed === s} onClick={() => setSpeed(s)} className="flex-1 text-center">
+          <GhostButton key={s} active={speed === s} onClick={() => setSpeed(s)} className="flex-1 text-center !py-3">
             {s}×
           </GhostButton>
         ))}
         <GhostButton
+          onClick={() => setPaused((p) => !p)}
+          active={paused}
+          className="flex-1 text-center !py-3"
+        >
+          {paused ? 'RESUME' : 'PAUSE'}
+        </GhostButton>
+        <GhostButton
           onClick={() => setStep(overs.length)}
-          className="flex-1 text-center"
+          className="flex-1 text-center !py-3"
           style={{ color: theme.gold, borderColor: `${theme.gold}66` }}
         >
           SKIP

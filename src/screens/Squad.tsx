@@ -4,8 +4,8 @@ import type { Player } from '../data/types'
 import { BAGSHOT_SQUAD } from '../data/squad'
 import { theme } from '../theme'
 import {
-  availabilityColour, Eyebrow, GhostButton, Notice, PrimaryButton, ScreenHeader,
-  roleColour, roleOf,
+  availabilityColour, ConfirmButton, Eyebrow, GhostButton, Notice, PrimaryButton,
+  ScreenHeader, StickyFooter, roleColour, roleOf,
 } from '../components/ui'
 
 const FIELDS: [string, (p: Player) => number, (p: Player, v: number) => Player][] = [
@@ -290,13 +290,14 @@ export function Squad({
                     >
                       SPIN
                     </GhostButton>
-                    <GhostButton
-                      onClick={() => remove(p.id)}
+                    <ConfirmButton
+                      onConfirm={() => remove(p.id)}
+                      confirmLabel="REMOVE?"
                       className="!px-3"
                       style={{ color: squad.length > 11 ? theme.red : theme.faint }}
                     >
                       ✕
-                    </GhostButton>
+                    </ConfirmButton>
                   </div>
                 </div>
               )}
@@ -341,21 +342,22 @@ export function Squad({
 
       {isCustom && (
         <div className="mt-3">
-          <GhostButton
-            onClick={onReset}
+          <ConfirmButton
+            onConfirm={onReset}
+            confirmLabel="SURE? THIS DISCARDS EVERY EDIT"
             className="w-full text-center !py-2.5"
             style={{ color: theme.red, borderColor: `${theme.red}55` }}
           >
             RESET TO PLACEHOLDER SQUAD ({BAGSHOT_SQUAD.length} PLAYERS)
-          </GhostButton>
+          </ConfirmButton>
         </div>
       )}
 
-      <div className="mt-4">
+      <StickyFooter>
         <PrimaryButton onClick={onBack} disabled={squad.length < 11}>
           {squad.length < 11 ? `NEED ${11 - squad.length} MORE` : 'DONE'}
         </PrimaryButton>
-      </div>
+      </StickyFooter>
     </div>
   )
 }

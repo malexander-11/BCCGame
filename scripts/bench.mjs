@@ -30,7 +30,7 @@ await build({
 const {
   BAGSHOT_SQUAD, OPPOSITION, RULES, DIV6_WEST, BAGSHOT_REAL_POSITION,
   simulateMatch, simulateFieldingInnings, simulateBattingInnings, buildMatchResult,
-  autoPlan, autoBattingOrder, autoSelectXI, buildRota, validatePlan,
+  autoPlan, autoBattingOrder, autoSelectXI, buildRota, validatePlan, makeRng,
   createSeason, nextFixture, recordRound, standings, seasonComplete,
   dlsPar, resources, swingBoost, SWING_WINDOW,
   initialAvailability, rollRound, availablePlayers, unavailableMap, availabilityRate,
@@ -212,6 +212,8 @@ let capViolations = 0
 let tooFewBowlers = 0
 let ballsMismatch = 0
 let runsMismatch = 0
+let stripMismatch = 0
+let creaseMismatch = 0
 
 for (let i = 0; i < 500; i++) {
   const opp = evenOpponents[i % evenOpponents.length]
@@ -235,6 +237,29 @@ for (let i = 0; i < 500; i++) {
 
     const wktsOnCard = innings.batting.filter((b) => b.out !== null).length
     if (wktsOnCard !== innings.wickets) runsMismatch++
+
+    // The scorebook strip drives the sim display, so it has to be the truth:
+    // six legal deliveries an over, wickets and runs matching the summary.
+    for (const o of innings.overSummaries) {
+      const legal = o.balls.filter((t) => t !== 'wd' && t !== 'nb').length
+      const last = o.over === innings.overSummaries[innings.overSummaries.length - 1].over
+      // A short final over is fine — the innings ended inside it.
+      if (legal > RULES.ballsPerOver || (legal < RULES.ballsPerOver && !last)) stripMismatch++
+      if (o.balls.filter((t) => t === 'W').length !== o.wkts) stripMismatch++
+      const fromStrip = o.balls.reduce((s, t) => {
+        if (t === 'wd' || t === 'nb') return s + 1
+        if (t === '.') return s
+        return s + (parseInt(t, 10) || 0)
+      }, 0)
+      if (fromStrip !== o.runs) stripMismatch++
+      // Nobody at the crease is already out, and never more than two of them.
+      if (o.atCrease.length > 2) creaseMismatch++
+      if (o.atCrease.filter((b) => b.onStrike).length > 1) creaseMismatch++
+      for (const b of o.atCrease) {
+        const card = innings.batting.find((c) => c.name === b.name)
+        if (!card || b.runs > card.runs || b.balls > card.balls) creaseMismatch++
+      }
+    }
   }
 }
 
@@ -264,6 +289,24 @@ check('over cap respected', capViolations, 0, 0, (v) => v)
 check('at least 5 bowlers used', tooFewBowlers, 0, 0, (v) => v)
 check('balls reconcile', ballsMismatch, 0, 0, (v) => v)
 check('runs & wickets reconcile', runsMismatch, 0, 0, (v) => v)
+check('scorebook strip reconciles', stripMismatch, 0, 0, (v) => v)
+check('crease snapshot is sane', creaseMismatch, 0, 0, (v) => v)
+
+// The bowling plan screen previews the rota by re-seeding buildRota with the
+// match seed. That's only honest if it reproduces the rota the innings actually
+// uses — so check the preview against who really bowled.
+let previewMismatch = 0
+for (let i = 0; i < 300; i++) {
+  const seed = i * 7919 + 13
+  const plan = autoPlan(BAGSHOT_XI)
+  const preview = buildRota(plan, makeRng(seed))
+  const innings = simulateFieldingInnings(evenOpponents[i % evenOpponents.length], BAGSHOT_XI, plan, seed)
+  for (const o of innings.overSummaries) {
+    const predicted = BAGSHOT_XI.find((p) => p.id === preview[o.over - 1])
+    if (predicted?.name !== o.bowlerName) previewMismatch++
+  }
+}
+check('rota preview matches reality', previewMismatch, 0, 0, (v) => v)
 
 // ------------------------------------------------------- DLS resource table
 
