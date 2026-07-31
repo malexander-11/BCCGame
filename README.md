@@ -15,7 +15,32 @@ npm install
 npm run dev        # play it at localhost:5173
 npm run build      # static site in dist/
 npm run bench      # 2000 headless matches, checks the engine is calibrated
+npm run typecheck
 ```
+
+---
+
+## Deploying
+
+The build is a plain static site with no backend, no environment variables and
+no server-side routing, so any static host will do.
+
+**Vercel** — import the repo and accept the defaults. It detects Vite and uses:
+
+| Setting | Value |
+|---|---|
+| Framework preset | Vite |
+| Build command | `npm run build` |
+| Output directory | `dist` |
+| Install command | `npm install` |
+
+Nothing else to configure. There is no client-side router, so no rewrite rules
+are needed. Vercel builds the repo's production branch on every push and gives
+every other branch a preview URL.
+
+`vite.config.ts` sets `base: './'`, so the built asset paths are relative and
+the same `dist/` works at a domain root or in a subdirectory — Vercel, Netlify,
+GitHub Pages or a folder on the club website.
 
 ---
 
