@@ -7,7 +7,8 @@ import { BAGSHOT_SQUAD } from './data/squad'
 // trimmed it from 42 players to 24, v4 restored three and added swing ratings.
 const SQUAD_KEY = 'bcc.squad.v4'
 const RECORD_KEY = 'bcc.record.v1'
-const SEASON_KEY = 'bcc.season.v1'
+// v2 added squad availability — a v1 save has no team news and would crash.
+const SEASON_KEY = 'bcc.season.v2'
 const PREFS_KEY = 'bcc.prefs.v1'
 
 export interface Record {
@@ -82,6 +83,7 @@ export function loadSeason(): Season | null {
     const s = JSON.parse(raw) as Season
     // Guard against a save written by an older schedule shape.
     if (!Array.isArray(s?.schedule) || !Array.isArray(s?.results) || !s?.stats) return null
+    if (!s?.availability?.absences || !s?.availability?.away) return null
     return s
   } catch { return null }
 }

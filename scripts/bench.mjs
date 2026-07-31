@@ -33,6 +33,7 @@ const {
   autoPlan, autoBattingOrder, autoSelectXI, buildRota, validatePlan,
   createSeason, nextFixture, recordRound, standings, seasonComplete,
   dlsPar, resources, swingBoost, SWING_WINDOW,
+  initialAvailability, rollRound, availablePlayers, unavailableMap,
 } = await import(join(outdir, 'engine.mjs'))
 
 const argMatches = process.argv.indexOf('--matches')
@@ -294,21 +295,61 @@ check('no swing rating, no boost', swingBoost(undefined, 1).att, 1, 1, (v) => v.
 
 // ------------------------------------------------------------ season shape
 
+// ------------------------------------------------------- squad availability
+
+console.log('\n\x1b[1mSquad availability\x1b[0m')
+
+const awayCounts = []
+const injuredCounts = []
+let falloutTotal = 0
+let unpickable = 0
+let noKeeperRounds = 0
+let negativeRounds = 0
+
+for (let s = 0; s < 300; s++) {
+  let state = initialAvailability(BAGSHOT_SQUAD, s * 7919 + 11)
+  for (let round = 1; round <= 9; round++) {
+    if (round > 1) state = rollRound(state, BAGSHOT_SQUAD, round, s * 7919 + 11)
+    awayCounts.push(state.away.length)
+    injuredCounts.push(state.absences.filter((a) => a.kind === 'injury').length)
+    falloutTotal += state.log.filter((e) => e.round === round && e.kind === 'fallout').length
+
+    const fit = availablePlayers(BAGSHOT_SQUAD, state)
+    // A squad that can't raise a legal XI is a bug, not a challenge.
+    if (fit.length < 11) unpickable++
+    if (fit.filter((p) => p.bowl.def >= 20 && p.bowl.att >= 20).length < RULES.minBowlers) unpickable++
+    if (!fit.some((p) => p.wk)) noKeeperRounds++
+    // An absence must never outlive its own expiry.
+    if (state.absences.some((a) => a.until <= round)) negativeRounds++
+  }
+}
+
+const rounds = awayCounts.length
+check('away per round', mean(awayCounts), 3, 5, (v) => v.toFixed(2))
+check('injured at any time', mean(injuredCounts), 3, 5, (v) => v.toFixed(2))
+check('always able to field an XI', unpickable, 0, 0, (v) => v)
+check('expired absences cleared', negativeRounds, 0, 0, (v) => v)
+check('fallouts are rare', (falloutTotal / rounds) * 100, 2, 30, (v) => v.toFixed(1) + '%')
+console.log(
+  `  \x1b[90mboth keepers out in ${((noKeeperRounds / rounds) * 100).toFixed(1)}% of rounds ` +
+  `— a stand-in keeps, at a cost\x1b[0m`,
+)
+
 console.log('\n\x1b[1mDivision 6 West\x1b[0m')
 
 const seasonPositions = []
 const SEASONS = Math.max(60, Math.floor(MATCHES / 20))
-const seasonPlan = autoPlan(BAGSHOT_XI)
-const seasonOrder = autoBattingOrder(BAGSHOT_XI)
 for (let s = 0; s < SEASONS; s++) {
-  let season = createSeason(s * 7919 + 11)
+  let season = createSeason(s * 7919 + 11, BAGSHOT_SQUAD)
   while (!seasonComplete(season)) {
     const f = nextFixture(season)
     const opp = DIV6_WEST.find((c) => c.id === f.opponentId)
     const sd = (s * 31 + f.round) * 104729
-    const one = simulateFieldingInnings(opp, BAGSHOT_XI, seasonPlan, sd)
-    const two = simulateBattingInnings(opp, seasonOrder, one.runs + 1, sd)
-    season = recordRound(season, buildMatchResult(sd, opp, one, two))
+    const fit = availablePlayers(BAGSHOT_SQUAD, season.availability)
+    const xiR = autoSelectXI(fit)
+    const one = simulateFieldingInnings(opp, xiR, autoPlan(xiR), sd)
+    const two = simulateBattingInnings(opp, autoBattingOrder(xiR), one.runs + 1, sd)
+    season = recordRound(season, buildMatchResult(sd, opp, one, two), BAGSHOT_SQUAD)
   }
   const table = standings(season)
   seasonPositions.push(table.find((r) => r.isBagshot).position)

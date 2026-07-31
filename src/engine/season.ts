@@ -1,7 +1,9 @@
 import { RULES } from '../data/types'
-import type { InningsResult, MatchOutcome, MatchResult } from '../data/types'
+import type { InningsResult, MatchOutcome, MatchResult, Player } from '../data/types'
 import { DIV6_WEST } from '../data/league'
 import { simulateMatch, TEAM_NAME } from './match'
+import { initialAvailability, rollRound } from './availability'
+import type { AvailabilityState } from './availability'
 import { hashString } from './rng'
 
 /**
@@ -55,6 +57,8 @@ export interface Season {
   schedule: [string, string][][]
   results: SeasonResult[]
   stats: Record<string, TeamStats>
+  /** Who is injured, away or sulking, and the running team-news log. */
+  availability: AvailabilityState
 }
 
 export interface TableRow extends TeamStats {
@@ -100,11 +104,17 @@ function roundRobin(ids: string[]): [string, string][][] {
   return rounds
 }
 
-export function createSeason(seed: number): Season {
+export function createSeason(seed: number, squad: Player[]): Season {
   const ids = [BAGSHOT_ID, ...DIV6_WEST.map((c) => c.id)]
   const stats: Record<string, TeamStats> = {}
   for (const id of ids) stats[id] = emptyStats()
-  return { seed, schedule: roundRobin(ids), results: [], stats }
+  return {
+    seed,
+    schedule: roundRobin(ids),
+    results: [],
+    stats,
+    availability: initialAvailability(squad, seed),
+  }
 }
 
 export const totalRounds = (season: Season) => season.schedule.length
@@ -195,7 +205,7 @@ export const bagshotRow = (season: Season) =>
  * Returns a new season — the state is treated as immutable so React re-renders
  * cleanly and a half-applied round can never be persisted.
  */
-export function recordRound(season: Season, match: MatchResult): Season {
+export function recordRound(season: Season, match: MatchResult, squad: Player[]): Season {
   const fixture = nextFixture(season)
   if (!fixture) return season
 
@@ -234,7 +244,15 @@ export function recordRound(season: Season, match: MatchResult): Season {
     motm: `${match.motm.name} ${match.motm.line}`,
   }
 
-  return { ...season, stats, results: [...season.results, result] }
+  const results = [...season.results, result]
+  // Roll next week's team news now, so the season screen can show it before you
+  // commit to playing. Nothing to roll once the season is over.
+  const nextRound = results.length + 1
+  const availability = nextRound <= season.schedule.length
+    ? rollRound(season.availability, squad, nextRound, season.seed)
+    : season.availability
+
+  return { ...season, stats, results, availability }
 }
 
 export const seasonComplete = (season: Season) =>

@@ -2,6 +2,8 @@ import { useMemo } from 'react'
 import { BAGSHOT_REAL_POINTS, BAGSHOT_REAL_POSITION, DIV6_WEST } from '../data/league'
 import type { Season as SeasonState } from '../engine/season'
 import { nextFixture, seasonComplete, standings, totalRounds } from '../engine/season'
+import { roundNews, unavailableMap } from '../engine/availability'
+import type { EventKind } from '../engine/availability'
 import { formatOvers } from '../engine/innings'
 import { theme } from '../theme'
 import { Card, Eyebrow, GhostButton, Notice, PrimaryButton, ScreenHeader } from '../components/ui'
@@ -10,6 +12,20 @@ const ordinal = (n: number) => {
   const s = ['th', 'st', 'nd', 'rd']
   const v = n % 100
   return n + (s[(v - 20) % 10] ?? s[v] ?? s[0])
+}
+
+const NEWS_COLOUR: Record<EventKind, string> = {
+  away: theme.pitch,
+  injury: theme.red,
+  fallout: '#9B5FD0',
+  return: theme.green,
+}
+
+const NEWS_LABEL: Record<EventKind, string> = {
+  away: 'UNAVAILABLE',
+  injury: 'INJURED',
+  fallout: 'FALLOUT',
+  return: 'BACK',
 }
 
 export function Season({
@@ -29,6 +45,11 @@ export function Season({
   const rounds = totalRounds(season)
   const us = table.find((r) => r.isBagshot)!
   const opponent = fixture ? DIV6_WEST.find((c) => c.id === fixture.opponentId) : null
+  const out = useMemo(() => unavailableMap(season.availability), [season.availability])
+  const news = useMemo(
+    () => roundNews(season.availability, season.results.length + 1),
+    [season.availability, season.results.length],
+  )
 
   return (
     <div className="pt-6 pb-4 pop">
@@ -66,6 +87,54 @@ export function Season({
             <PrimaryButton onClick={onPlay}>PLAY THE MATCH</PrimaryButton>
           </div>
         </Card>
+      )}
+
+      {!done && (
+        <div className="mb-3">
+          <Eyebrow>TEAM NEWS · ROUND {season.results.length + 1}</Eyebrow>
+          <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${theme.border}` }}>
+            <div
+              className="px-3 py-2 flex items-baseline justify-between"
+              style={{ background: theme.surface2 }}
+            >
+              <span className="disp text-[11px] tracking-wider" style={{ color: theme.muted }}>
+                UNAVAILABLE THIS WEEK
+              </span>
+              <span className="disp num text-[15px] font-bold" style={{ color: theme.red }}>
+                {out.size}
+              </span>
+            </div>
+            {news.length === 0 ? (
+              <div className="px-3 py-3 text-[12px] text-center" style={{ color: theme.faint }}>
+                A full squad to pick from.
+              </div>
+            ) : (
+              news.map((e, i) => (
+                <div
+                  key={`${e.round}-${e.playerId}-${e.kind}-${i}`}
+                  className="px-3 py-2 flex items-baseline gap-2"
+                  style={{
+                    background: i % 2 ? 'rgba(255,255,255,.02)' : 'transparent',
+                    borderTop: `1px solid ${theme.border}55`,
+                  }}
+                >
+                  <span
+                    className="disp text-[8.5px] font-bold px-1.5 rounded tracking-wider shrink-0"
+                    style={{ background: `${NEWS_COLOUR[e.kind]}22`, color: NEWS_COLOUR[e.kind] }}
+                  >
+                    {NEWS_LABEL[e.kind]}
+                  </span>
+                  <span className="text-[12px] leading-snug flex-1">{e.text}</span>
+                  {e.rounds !== undefined && (
+                    <span className="disp num text-[10px] shrink-0" style={{ color: theme.faint }}>
+                      {e.rounds}wk
+                    </span>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       )}
 
       <div className="flex gap-2 mb-3">

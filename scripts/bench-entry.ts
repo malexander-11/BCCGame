@@ -14,3 +14,6 @@ export {
 } from '../src/engine/season'
 export { dlsPar, resources, startingResources } from '../src/engine/dls'
 export { swingBoost, SWING_WINDOW } from '../src/engine/ratings'
+export {
+  initialAvailability, rollRound, availablePlayers, unavailableMap, roundNews,
+} from '../src/engine/availability'

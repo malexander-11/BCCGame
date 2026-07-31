@@ -59,13 +59,17 @@ const DIVISION: Seed[] = [
  * scale sits well above the engine's. This lifts every Division 6 West player
  * onto the same scale.
  *
- * It is tuned to +16, which puts a well-managed Bagshot around 4th-5th: in the
- * top four about half of seasons, champions roughly one in eleven, and still
+ * It is tuned to +13, which puts a well-managed Bagshot around 4th-5th: in the
+ * top four about half of seasons, champions roughly one in nine, and still
  * capable of a bad year. Pitching it so an auto-picked side finished 7th like
- * the real table needed +26, and at that level the title was a 1-in-50 shot —
- * accurate, but not a game. The real 7th is the benchmark to beat instead.
+ * the real table made the title a 1-in-50 shot — accurate, but not a game. The
+ * real 7th is the benchmark to beat instead.
+ *
+ * It was +16 before squad availability landed. Losing eight or nine players a
+ * week to holidays, injuries and fallings-out is worth well over a league place
+ * on its own, so the division was eased to keep the same difficulty.
  */
-const DIVISION_BASELINE = 16
+const DIVISION_BASELINE = 13
 
 // ------------------------------------------------------------------ XI shape
 //

@@ -100,7 +100,11 @@ export function simulateInnings(input: InningsInput): InningsResult {
     })
   }
 
-  const keeper = fieldingXI.find((p) => p.wk) ?? fieldingXI[fieldingXI.length - 1]
+  // Somebody has to keep. If no specialist is available the gloves go to the
+  // last man, and it shows: more byes, and more chances go down behind.
+  const specialist = fieldingXI.find((p) => p.wk)
+  const keeper = specialist ?? fieldingXI[fieldingXI.length - 1]
+  const standIn = specialist === undefined
 
   const extras: Extras = { wides: 0, noBalls: 0, byes: 0, legByes: 0, total: 0 }
   const events: BallEvent[] = []
@@ -235,7 +239,11 @@ export function simulateInnings(input: InningsInput): InningsResult {
 
       if (outcome === 'W') {
         const kind = weighted(rng, DISMISSALS)
-        const dropRate = DROP_CHANCE[kind]
+        let dropRate = DROP_CHANCE[kind]
+        // A stand-in keeper shells the ones behind the stumps.
+        if (standIn && dropRate !== undefined && (kind === 'st' || kind === 'c')) {
+          dropRate *= 1.9
+        }
 
         if (dropRate !== undefined && rng() < dropRate) {
           // Put down. Give the batter a run or two for the trouble.
@@ -278,7 +286,7 @@ export function simulateInnings(input: InningsInput): InningsResult {
       if (scored === 0) {
         bowlerCard.dots++
         // Byes and leg byes: runs the bowler isn't charged for.
-        if (rng() < 0.015) {
+        if (rng() < (standIn ? 0.038 : 0.015)) {
           const bye = weighted(rng, [[1, 0.85], [2, 0.10], [4, 0.05]] as const)
           const leg = rng() < 0.65
           runs += bye

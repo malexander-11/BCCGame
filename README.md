@@ -143,6 +143,32 @@ though — to change the squad for everyone, edit the file and push.
 
 ---
 
+## Team news
+
+Availability is what actually decides a village Saturday XI, so a season models
+it. Every round:
+
+- **three to five have other plans** — a wedding, a stag do, work, "a
+  long-standing golf booking". One week only.
+- **three to five are injured** — topped back up to that band each round, with
+  absences running one to eight weeks depending on what they've done.
+- **occasionally somebody falls out with the club** — roughly twice a season,
+  and it always seems to be one of the good ones.
+
+That's typically eight or nine of twenty-seven missing, which is the point:
+you cannot pick the same eleven every week, so squad depth stops being
+decoration and selection becomes a real decision. Unavailable players stay
+visible on the selection screen, greyed out with the reason, so you can see
+exactly what you're missing.
+
+Both keepers are out about one round in ten. Rather than block selection, the
+gloves go to whoever bats last — and it shows, in byes and in chances put down
+behind the stumps.
+
+Flavour text lives in [`src/data/events.ts`](src/data/events.ts) and the
+mechanics in [`src/engine/availability.ts`](src/engine/availability.ts). It's
+deterministic in the season seed, so reloading can't reshuffle who is fit.
+
 ## The season
 
 `src/data/league.ts` holds the ten Division 6 West clubs and their real 2025
@@ -200,6 +226,7 @@ goalposts.
 | `ratings.ts` | 0-100 ratings → simulation multipliers, plus per-innings form. |
 | `ai.ts` | Auto XI selection and batting order, used for the opposition and the AUTO buttons. |
 | `season.ts` | Fixtures, league table, points and net run rate for Division 6 West. |
+| `availability.ts` | Who's away, injured or sulking, and the running team-news log. |
 | `dls.ts` | Duckworth-Lewis Standard Edition resource table and par scores. |
 | `rng.ts` | Seeded PRNG — every match is a pure function of its seed, shown on the result screen. |
 
@@ -225,8 +252,9 @@ editing the squad can't move the calibration.
 It also checks that better ratings win more often, that no bowler exceeds nine
 overs or bowls consecutively, that split spells can't produce an illegal rota,
 that the DLS resource table is monotonic and pars correctly at both ends of an
-innings, that swing fires inside its window and nowhere else, and that a season
-lands in the intended difficulty band. All 32 checks pass.
+innings, that swing fires inside its window and nowhere else, that availability
+stays in its three-to-five bands and can never leave you unable to field a legal
+XI, and that a season lands in the intended difficulty band. All 37 checks pass.
 
 The mirror-match check plays a side against itself: the chasing side wins 55.5%,
 in line with real limited-overs cricket, where knowing the target is worth

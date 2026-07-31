@@ -9,6 +9,7 @@ import {
   createSeason, nextFixture, recordRound, seasonComplete,
 } from './engine/season'
 import type { Season as SeasonState } from './engine/season'
+import { availablePlayers, unavailableMap } from './engine/availability'
 import {
   loadPrefs, loadRecord, loadSeason, loadSquad, recordMatch,
   resetSquad, savePrefs, saveSeason, saveSquad, usingCustomSquad,
@@ -84,9 +85,9 @@ export default function App() {
   }, [])
 
   const openSeason = useCallback(() => {
-    if (!season) persistSeason(createSeason(randomSeed()))
+    if (!season) persistSeason(createSeason(randomSeed(), squad))
     setScreen('season')
-  }, [season, persistSeason])
+  }, [season, squad, persistSeason])
 
   /** Play the next league fixture yourself. */
   const playFixture = useCallback(() => {
@@ -105,12 +106,14 @@ export default function App() {
       if (!fixture) break
       const club = DIV6_WEST.find((c) => c.id === fixture.opponentId)
       if (!club) break
-      const xiAuto = autoSelectXI(squad)
+      // The auto manager is bound by the same team news you are.
+      const fit = availablePlayers(squad, running.availability)
+      const xiAuto = autoSelectXI(fit)
       const planAuto = autoPlan(xiAuto)
       const matchSeed = randomSeed()
       const one = simulateFieldingInnings(club, xiAuto, planAuto, matchSeed)
       const two = simulateBattingInnings(club, autoBattingOrder(xiAuto), one.runs + 1, matchSeed)
-      running = recordRound(running, buildMatchResult(matchSeed, club, one, two))
+      running = recordRound(running, buildMatchResult(matchSeed, club, one, two), squad)
     }
     persistSeason(running)
   }, [season, squad, persistSeason])
@@ -147,9 +150,9 @@ export default function App() {
     setResult(built)
     setRecord((r) => recordMatch(r, built.outcome, innings.runs, opponent.name))
     // A league fixture updates the table — and plays out the rest of its round.
-    if (inLeague && season) persistSeason(recordRound(season, built))
+    if (inLeague && season) persistSeason(recordRound(season, built, squad))
     setScreen(prefs.instant ? 'result' : 'sim2')
-  }, [opponent, first, order, seed, inLeague, season, persistSeason, prefs.instant])
+  }, [opponent, first, order, seed, inLeague, season, squad, persistSeason, prefs.instant])
 
   const toggleInstant = useCallback(() => {
     setPrefs((p) => {
@@ -162,6 +165,20 @@ export default function App() {
   const sortedSquad = useMemo(
     () => [...squad].sort((a, b) => a.positions[0] - b.positions[0]),
     [squad],
+  )
+
+  /** Who's missing this week. Only season fixtures have team news. */
+  const unavailable = useMemo(() => {
+    if (!inLeague || !season) return undefined
+    const map = new Map<string, string>()
+    for (const [id, a] of unavailableMap(season.availability)) map.set(id, a.reason)
+    return map
+  }, [inLeague, season])
+
+  /** The pool AUTO and the selection screen may draw from. */
+  const pickable = useMemo(
+    () => (inLeague && season ? availablePlayers(squad, season.availability) : squad),
+    [inLeague, season, squad],
   )
 
   /** Where the back arrow and the post-match buttons return you to. */
@@ -199,9 +216,10 @@ export default function App() {
             squad={sortedSquad}
             opponent={opponent}
             selected={xi}
+            unavailable={unavailable}
             onToggle={toggle}
             onAuto={() => {
-              const picked = autoSelectXI(squad)
+              const picked = autoSelectXI(pickable)
               setXi(picked)
               setPlan(autoPlan(picked))
             }}
