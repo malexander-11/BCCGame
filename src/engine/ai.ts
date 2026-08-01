@@ -102,7 +102,9 @@ export function autoBattingOrder(xi: Player[]): Player[] {
  * break comes up. Most breaks are obvious, so the default should be right often
  * enough that you only spend attention on the ones where you disagree.
  */
-export function autoIntent(need: number, ballsLeft: number, wickets: number): Intent {
+export function autoIntent(
+  need: number, ballsLeft: number, wickets: number, settled = 1,
+): Intent {
   if (ballsLeft <= 0 || need <= 0) return 'build'
   const rrr = (need / ballsLeft) * 6
   const inHand = RULES.wickets - wickets
@@ -116,8 +118,13 @@ export function autoIntent(need: number, ballsLeft: number, wickets: number): In
   const level = rrr < 3.2 ? 0 : rrr < 4.2 ? 1 : rrr < 5.6 ? 2 : 3
   // A collapse pulls it back a notch whatever the rate says.
   const tight = inHand <= 3 ? 1 : 0
+  // ...and so does having just walked out. A new man plays himself in unless
+  // the rate genuinely won't wait, which is what makes the order *per batter*
+  // mean something even when you let the default ride: the set striker and the
+  // number nine who just arrived are given different things to do.
+  const fresh = settled < 0.35 && rrr < 7 ? 1 : 0
   const ladder: Intent[] = ['defend', 'build', 'push', 'attack']
-  return ladder[Math.max(0, level - tight)]
+  return ladder[Math.max(0, level - tight - fresh)]
 }
 
 /** A full set of block intents for a side with nobody making the calls. */
@@ -129,6 +136,9 @@ export function autoIntents(target: number): Intent[] {
     return autoIntent(target - par, RULES.balls - ballsGone, Math.floor(i * 1.4))
   })
 }
+
+/** What to open the batting-order screen on — the first block, before a ball. */
+export const openingIntent = (target: number) => autoIntents(target)[0]
 
 // ------------------------------------------------------------- the auto captain
 

@@ -93,9 +93,16 @@ quarter; a 25-SKILL bowler cuts it by under a tenth, because he was going to get
 out anyway. Anyone can stop playing shots — that's why only the upside is scaled
 by power.
 
-That makes the instruction interact with the batting order and with whoever
-happens to be at the crease when the break comes. The screen shows you the
-actual numbers for the two men out there, so it's a decision rather than a dial.
+Instructions are therefore **per batter**, not per side — telling your set
+striker to attack shouldn't also tell the number nine who has just walked in to
+attack. Each man at the crease gets his own row of four and his own numbers, and
+they're stamped with the ball they were given on: an order at over 27 can never
+reach back and change over 3.
+
+Anyone you haven't spoken to reads the game for himself, and **how set he is**
+is part of that read — a new man plays himself in unless the rate genuinely
+won't wait. So the two ends are on different instructions even when you let the
+default ride.
 
 ### Seam and spin
 
@@ -143,12 +150,15 @@ handful of ninety-odds, with nothing in the twenties and thirties where club
 cricket actually lives.
 
 This is what makes the **field** a decision rather than a dial, and why the
-attack screen shows you how set the two men are before it asks.
+attack screen shows you how set the two men are before it asks. It's also why
+play stops the moment a wicket falls rather than at the end of the over: a new
+batter is the cheapest wicket in the game and the instruction has to reach the
+field before his first ball, not his sixth.
 
 ### The field
 
-Where the fielders go, set for one nine-over block at a time — the bowling
-side's half of the intent decision. The ladder is how many men are up:
+Where the fielders go, set at every nine-over mark and at every wicket — the
+bowling side's half of the intent decision. The ladder is how many men are up:
 **SPREAD · CONTAIN · PRESS · ATTACK**. Bring them in and you buy chances at the
 cost of the gaps behind them; push them back and you save the boundary but
 concede the single and never get him out. A ring field is the tightest thing
@@ -256,16 +266,29 @@ Anyone since dropped from the squad or unavailable simply isn't there.
    each in rotation.
 3. **Fielding innings** — they bat, and it **stops every nine overs** so you can
    pick the next spell. Each break shows the score, who's in and **how set they
-   are**, what every bowler has left, and who bowled the last over (he can't
-   open the next block). The same screen four more times: first change, middle
-   overs, the squeeze, the death. The scoreboard carries the two men at the
-   crease, and the feed runs a scorebook strip for every over (`. 1 4 . W 2`),
-   so every single ball is visible. Pause, run it at 4×, or skip it entirely.
+   are**, **every bowler's figures so far** (`4-0-18-2`, coloured by what it's
+   costing), what he has left, and who bowled the last over — he can't open the
+   next block. The same screen four more times: first change, middle overs, the
+   squeeze, the death.
+
+   It also **stops the moment a wicket falls**, mid-over, on a compact card: who
+   went, who's in, and where you want the fielders for him. That's the point of
+   stopping there rather than at the end of the over — a new batter is the
+   cheapest wicket in the game and the field has to be set before his first ball.
+
+   The scoreboard carries the two men at the crease, and the feed runs a
+   scorebook strip for every over (`. 1 4 . W 2`), so every single ball is
+   visible; an over interrupted by a wicket shows only what's been bowled and
+   fills in when you play on. Pause, run it at 4×, or skip it entirely.
 4. **Interval** — your order shown back with the target now known, and how the
    openers play the first nine overs.
-5. **The chase** — you bat, and the innings **stops for drinks every nine
-   overs**. Each break shows the score, the asking rate, the DLS par and who's
-   in, then asks how they play the next nine: **defend, build, push, attack**.
+5. **The chase** — you bat, and the innings **stops for drinks every nine overs
+   and every time you lose a wicket**. A drinks break shows the score, the asking
+   rate, the DLS par and both men in, then asks how **each of them** plays the
+   next nine: **defend, build, push, attack**, one row per batter with his own
+   numbers. A wicket gets the same compact card the fielding innings does — who's
+   out, who's in, and what the new man is to do about it.
+
    There is no autopilot underneath — tell them to block out a chase you could
    have won and they will. A **DLS par score** runs alongside the required rate,
    because par prices in wickets as well as balls: nine down and level with the
@@ -456,9 +479,9 @@ looks like 45-over club cricket rather than a video game. Current numbers:
 
 ```
 median first innings   172        run rate            3.98
-10th / 90th pct        100 / 209  wickets lost        7.65
-all-out rate           46.4%      extras             11.6
-ducks per innings      1.44       fifties per innings 0.81
+10th / 90th pct        100 / 208  wickets lost        7.65
+all-out rate           46.2%      extras             11.6
+ducks per innings      1.35       fifties per innings 0.83
 median batter score      7        50+ per batting card 11%
 ```
 
@@ -501,12 +524,21 @@ asking you to plan forty-five overs blind. Nine overs at a time is the answer to
 all three; the tandem rule is what makes them describe real spells.
 
 The live version needs one more guarantee, and it's the one the whole design
-rests on: **deciding block three cannot re-bowl blocks one and two**. Each
-block's rota is dealt from its own seeded stream for exactly that reason, and
-every player's form roll comes from a private stream too — drawing them from the
-ball sequence meant bringing on a sixth bowler at the twenty-seventh over
-shifted every delivery back to the first, silently rewriting overs you had
-already watched.
+rests on: **a decision can never re-bowl what came before it**. Each block's
+rota is dealt from its own seeded stream for exactly that reason, and every
+player's form roll comes from a private stream too — drawing them from the ball
+sequence meant bringing on a sixth bowler at the twenty-seventh over shifted
+every delivery back to the first, silently rewriting overs you had already
+watched. Instructions are an append-only log stamped in *balls* rather than
+overs, so the same holds at a wicket that falls mid-over.
+
+That last one can't be checked ball for ball, and it's worth saying why: an
+order moves the *probabilities*, not the outcomes. The same roll often lands in
+the same bucket either way, so "the next ball must differ" fails two thirds of
+the time for a perfectly correct engine. What the check does instead is give the
+same order at the wicket and at the end of that over, and assert the two innings
+diverge — which catches the thing worth catching, an order that quietly doesn't
+apply until the next over.
 
 Batting intent has its own two. One asserts the trade is **player-dependent** —
 a striker's exchange rate of runs for risk has to be several times better than a
@@ -552,7 +584,7 @@ not the whole innings, fifties an event, and — the one that was genuinely brok
 before confidence existed — **the top three outscoring the middle order**, which
 they have to, because openers face by far the most deliveries.
 
-All 99 checks pass.
+All 103 checks pass.
 
 The mirror-match check plays a side against itself: the chasing side wins ~55%,
 in line with real limited-overs cricket, where knowing the target is worth

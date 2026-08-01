@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react'
 import {
-  BLOCK_CAP, BLOCK_LABELS, blockRange, RULES, settledLabel,
+  BLOCK_CAP, BLOCK_LABELS, blockRange, figuresText, RULES, settledLabel,
 } from '../data/types'
-import type { BlockPlan, Club, Field, InningsResult, Player } from '../data/types'
+import type {
+  BlockPlan, BowlerFigures, Club, Field, InningsResult, Player,
+} from '../data/types'
 import { blockRng, blockSize, buildBlockRota, oversLeft, validateBlock } from '../engine/rota'
 import { availableBowlers } from '../engine/ratings'
 import { FieldPicker } from '../components/FieldPicker'
@@ -14,6 +16,8 @@ import {
 const bowlIndex = (p: Player) => 0.5 * p.bowl.def + 0.5 * p.bowl.att
 /** Below this a legal bowler is really a part-timer, not part of the attack. */
 const FRONTLINE = 60
+
+const econ = (f: BowlerFigures) => (f.balls > 0 ? (f.runs / f.balls) * RULES.ballsPerOver : 0)
 
 /**
  * Who bowls the next nine overs, and where the fielders stand for them.
@@ -98,6 +102,25 @@ export function Attack({
     .map((a) => xi.find((p) => p.id === a.playerId))
     .filter((p): p is Player => p !== undefined)
 
+  /**
+   * Everyone's analysis **as at this break**, taken from each man's most recent
+   * over before it.
+   *
+   * Not from `innings.bowling`, which is his card at the end of the innings —
+   * that would tell you how the whole thing turns out before you'd picked who
+   * bowls the next nine. What he has actually done with the ball so far is the
+   * most useful thing a captain has here, and the ratings alone don't say it: a
+   * 91-DEF bowler going at seven an over is having a day.
+   */
+  const figures = useMemo(() => {
+    const map = new Map<string, BowlerFigures>()
+    for (const o of innings?.overSummaries ?? []) {
+      if (o.over >= from) break
+      map.set(o.bowlerId, o.figures)
+    }
+    return map
+  }, [innings, from])
+
   const renderBowler = (p: Player, i: number) => {
     const overs = oversOf(p.id)
     const on = overs > 0
@@ -105,6 +128,7 @@ export function Attack({
     const left = oversLeft(used, p.id)
     const ceiling = ceilingFor(p)
     const spent = left <= 0
+    const his = figures.get(p.id)
     // Nobody needs a disabled stepper for a bowler who isn't in the attack. He
     // collapses to a single line until you tap him.
     const showControls = on || opened === p.id
@@ -128,8 +152,28 @@ export function Attack({
       >
         <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1">
-            <div className="text-[13.5px] font-semibold truncate" style={{ color: on ? theme.gold : theme.cream }}>
-              {p.name}
+            <div className="flex items-baseline gap-1.5">
+              <span
+                className="text-[13.5px] font-semibold truncate"
+                style={{ color: on ? theme.gold : theme.cream }}
+              >
+                {p.name}
+              </span>
+              {/* What he has actually done with the ball, not what he's rated,
+                  coloured by what it's costing — a 91-DEF bowler going at seven
+                  an over is having a day, and the ratings don't say so. */}
+              {his && his.balls > 0 && (
+                <span
+                  className="disp num text-[11px] shrink-0"
+                  title={`${econ(his).toFixed(2)} an over`}
+                  style={{
+                    color: econ(his) > 6 ? theme.red : econ(his) < 4 ? theme.green : theme.muted,
+                    fontWeight: his.wickets > 0 ? 700 : 400,
+                  }}
+                >
+                  {figuresText(his, RULES.ballsPerOver)}
+                </span>
+              )}
             </div>
             <div className="disp text-[10px] tracking-wider mt-0.5 flex items-center gap-1.5">
               <span style={{ color: spin ? theme.sky : theme.faint }}>{spin ? 'SPIN' : 'PACE'}</span>

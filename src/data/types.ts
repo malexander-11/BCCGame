@@ -98,8 +98,39 @@ export const INTENTS: { id: Intent; label: string; blurb: string; push: number }
 export const intentPush = (i: Intent) => INTENTS.find((x) => x.id === i)!.push
 
 /**
- * Where you put the fielders, set for one nine-over block at a time — the
- * bowling side's half of the same decision.
+ * One instruction, stamped with the ball it was given on.
+ *
+ * Instructions are **per batter**, not per side. Telling your set striker to
+ * attack shouldn't also tell the number nine who has just walked in to attack —
+ * the engine has always priced intent per man, scaling the upside by his power
+ * and the risk by his technique, and for a while it then applied one order to
+ * both of them anyway.
+ *
+ * The log is append-only and read as *the most recent entry at or before the
+ * current ball*. That is what keeps a mid-innings decision honest: replaying the
+ * innings with a longer log reproduces every earlier ball exactly, because those
+ * balls read the same entries they read the first time.
+ */
+export interface Order {
+  /** Legal balls bowled when it was given — it applies from the next one. */
+  at: number
+  playerId: string
+  intent: Intent
+}
+
+/** The most recent instruction for this batter at this point of the innings. */
+export function orderFor(orders: Order[], playerId: string, balls: number): Intent | null {
+  let found: Intent | null = null
+  for (const o of orders) {
+    if (o.at > balls) break
+    if (o.playerId === playerId) found = o.intent
+  }
+  return found
+}
+
+/**
+ * Where you put the fielders — the bowling side's half of the same decision,
+ * and the same append-only log.
  *
  * The ladder is how many men are up. Bring them in and you buy chances at the
  * cost of the gaps behind them; push them back and you save the boundary but
@@ -133,6 +164,21 @@ export const fieldPush = (f: Field) => FIELDS.find((x) => x.id === f)!.push
 
 /** The tightest setting — singles are cheapest here and dearer either side. */
 export const RING_PUSH = fieldPush('contain')
+
+export interface FieldOrder {
+  at: number
+  field: Field
+}
+
+/** Where the fielders were told to stand at this point of the innings. */
+export function fieldAt(orders: FieldOrder[], balls: number): Field | null {
+  let found: Field | null = null
+  for (const o of orders) {
+    if (o.at > balls) break
+    found = o.field
+  }
+  return found
+}
 
 /** Overs per block of the innings — 45 overs is exactly five nine-over blocks. */
 export const BLOCK_OVERS = 9
@@ -222,18 +268,27 @@ export interface BatterCard {
   batted: boolean
 }
 
-export interface BowlerCard {
-  playerId: string
-  name: string
+/** A bowler's analysis: the O-M-R-W on the scorecard. */
+export interface BowlerFigures {
   /** Legal deliveries only. */
   balls: number
   maidens: number
   runs: number
   wickets: number
+}
+
+export interface BowlerCard extends BowlerFigures {
+  playerId: string
+  name: string
   wides: number
   noBalls: number
   dots: number
 }
+
+/** "4-0-18-2", the way it reads in a scorebook. */
+export const figuresText = (f: BowlerFigures, ballsPerOver = 6) =>
+  `${Math.floor(f.balls / ballsPerOver)}${f.balls % ballsPerOver ? `.${f.balls % ballsPerOver}` : ''}`
+  + `-${f.maidens}-${f.runs}-${f.wickets}`
 
 export interface Extras {
   wides: number
@@ -259,6 +314,8 @@ export interface BallEvent {
 
 /** One batter as he stood at the end of an over. */
 export interface CreaseBatter {
+  /** So orders can be addressed to him rather than matched on his name. */
+  playerId: string
   name: string
   runs: number
   balls: number
@@ -283,12 +340,15 @@ export function settledLabel(settled: number): string {
 
 export interface OverSummary {
   over: number
+  bowlerId: string
   bowlerName: string
   runs: number
   wkts: number
   /** Running team total at the end of this over. */
   total: number
   totalWkts: number
+  /** Legal balls bowled before this over started, so a token maps to a ball. */
+  fromBall: number
   /**
    * Every delivery in the over, scorebook-style: `.` `1` `4` `W` `wd` `nb`
    * `1b` `2lb`. Extras mean an over can run to more than six.
@@ -299,6 +359,15 @@ export interface OverSummary {
    * man is stranded, none when the innings ended on the last ball.
    */
   atCrease: CreaseBatter[]
+  /**
+   * This bowler's cumulative analysis after this over.
+   *
+   * Snapshotting only the man who bowled it is enough to reconstruct anybody's
+   * figures at any point — take his most recent over — and it is *exact*, which
+   * adding up over totals is not, because byes go against the team and never
+   * against the bowler.
+   */
+  figures: BowlerFigures
 }
 
 export interface FowEntry {
@@ -307,6 +376,10 @@ export interface FowEntry {
   batter: string
   /** Formatted overs, e.g. "12.3". */
   at: string
+  /** Legal balls bowled when he went — the exact point play stops. */
+  ball: number
+  /** Who walked in, if anybody did. Absent on the last wicket. */
+  incoming?: { playerId: string; name: string }
 }
 
 export interface InningsResult {

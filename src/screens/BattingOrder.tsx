@@ -16,16 +16,16 @@ import {
  * the match where you know that.
  */
 export function BattingOrder({
-  order, target, didNotBowl, intent, suggested, onIntent, onChange, onAuto, onBack, onNext,
+  order, target, didNotBowl, opening, suggested, onIntent, onChange, onAuto, onBack, onNext,
 }: {
   order: Player[]
   target: number
   /** Ids of the XI who didn't get a bowl — fresh air candidates. */
   didNotBowl?: Set<string>
-  /** Intent for the first nine overs. The rest are set at the breaks. */
-  intent: Intent
+  /** What each opener has been told, by id. The rest is set at the breaks. */
+  opening: Record<string, Intent>
   suggested: Intent
-  onIntent: (i: Intent) => void
+  onIntent: (playerId: string, i: Intent) => void
   onChange: (order: Player[]) => void
   onAuto: () => void
   onBack: () => void
@@ -100,10 +100,13 @@ export function BattingOrder({
       </div>
 
       <IntentPicker
-        value={intent}
-        recommended={suggested}
         batters={order.slice(0, 2).map((p) => ({
-          name: p.name, skill: p.bat.skill, pwr: p.bat.pwr,
+          playerId: p.id,
+          name: p.name,
+          skill: p.bat.skill,
+          pwr: p.bat.pwr,
+          value: opening[p.id] ?? suggested,
+          recommended: suggested,
         }))}
         onChange={onIntent}
         heading={`FIRST ${BLOCK_OVERS} OVERS`}

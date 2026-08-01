@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { RULES } from '../data/types'
+import { RULES, settledLabel } from '../data/types'
 import type { InningsResult, Intent, Player } from '../data/types'
 import { autoIntent } from '../engine/ai'
 import { dlsPar } from '../engine/dls'
@@ -18,14 +18,16 @@ import { Eyebrow, PrimaryButton } from '../components/ui'
  * attention on the ones where you don't.
  */
 export function DrinksBreak({
-  innings, order, afterOver, onPlayOn,
+  innings, order, afterOver, standing, onPlayOn,
 }: {
   innings: InningsResult
   /** The batting order, for looking up the ratings of whoever is in. */
   order: Player[]
   /** The over just completed — 9, 18, 27 or 36. */
   afterOver: number
-  onPlayOn: (intent: Intent) => void
+  /** What each man is already under orders to do, if anything. */
+  standing: (playerId: string) => Intent | null
+  onPlayOn: (orders: Record<string, Intent>) => void
 }) {
   const summary = innings.overSummaries.find((o) => o.over === afterOver)
   const runs = summary?.total ?? 0
@@ -37,13 +39,27 @@ export function DrinksBreak({
   const rrr = ballsLeft > 0 ? (need / ballsLeft) * 6 : 0
   const par = dlsPar(target - 1, runs, wkts, balls)
 
-  const suggested = autoIntent(need, ballsLeft, wkts)
-  const [intent, setIntent] = useState<Intent>(suggested)
+  const crease = summary?.atCrease ?? []
+  // One suggestion per man, because how set he is changes what to tell him.
+  const suggest = (settled: number) => autoIntent(need, ballsLeft, wkts, settled)
 
-  const batters: IntentBatter[] = (summary?.atCrease ?? [])
+  const [chosen, setChosen] = useState<Record<string, Intent>>(() =>
+    Object.fromEntries(crease.map((b) => [
+      b.playerId, standing(b.playerId) ?? suggest(b.settled),
+    ])))
+
+  const batters: IntentBatter[] = crease
     .map((b) => {
-      const p = order.find((x) => x.name === b.name)
-      return p ? { name: b.name, skill: p.bat.skill, pwr: p.bat.pwr } : null
+      const p = order.find((x) => x.id === b.playerId)
+      if (!p) return null
+      return {
+        playerId: b.playerId,
+        name: b.name,
+        skill: p.bat.skill,
+        pwr: p.bat.pwr,
+        value: chosen[b.playerId] ?? suggest(b.settled),
+        recommended: suggest(b.settled),
+      }
     })
     .filter((b): b is IntentBatter => b !== null)
 
@@ -101,17 +117,17 @@ export function DrinksBreak({
         </div>
       </div>
 
-      {batters.length > 0 && (
+      {crease.length > 0 && (
         <div className="mb-3">
           <Eyebrow>AT THE CREASE</Eyebrow>
           <div
             className="rounded-xl overflow-hidden"
             style={{ background: theme.surface, border: `1px solid ${theme.border}` }}
           >
-            {(summary?.atCrease ?? []).map((b, i) => (
+            {crease.map((b, i) => (
               <div
-                key={b.name}
-                className="px-3 py-1.5 flex items-baseline gap-2"
+                key={b.playerId}
+                className="px-3 py-1.5 flex items-center gap-2"
                 style={{ borderTop: i > 0 ? `1px solid ${theme.border}55` : 'none' }}
               >
                 <span
@@ -126,6 +142,12 @@ export function DrinksBreak({
                     ({b.balls})
                   </span>
                 </span>
+                <span
+                  className="disp text-[8px] tracking-widest w-[4.6rem] text-right shrink-0"
+                  style={{ color: b.settled >= 0.85 ? theme.gold : b.settled < 0.22 ? theme.pitch : theme.muted }}
+                >
+                  {settledLabel(b.settled)}
+                </span>
               </div>
             ))}
           </div>
@@ -133,14 +155,12 @@ export function DrinksBreak({
       )}
 
       <IntentPicker
-        value={intent}
-        recommended={suggested}
         batters={batters}
-        onChange={setIntent}
+        onChange={(playerId, intent) => setChosen((prev) => ({ ...prev, [playerId]: intent }))}
         heading={`NEXT ${Math.min(9, RULES.overs - afterOver)} OVERS`}
       />
 
-      <PrimaryButton onClick={() => onPlayOn(intent)}>PLAY ON</PrimaryButton>
+      <PrimaryButton onClick={() => onPlayOn(chosen)}>PLAY ON</PrimaryButton>
     </div>
   )
 }

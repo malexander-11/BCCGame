@@ -1,6 +1,6 @@
 import { RULES } from '../data/types'
 import type {
-  BowlingPlan, Club, Field, InningsResult, Intent, MatchOutcome, MatchResult, Player,
+  BowlingPlan, Club, FieldOrder, InningsResult, MatchOutcome, MatchResult, Order, Player,
 } from '../data/types'
 import { autoBattingOrder, autoBlock, emptyPlan } from './ai'
 import { formatOvers, simulateInnings } from './innings'
@@ -34,7 +34,7 @@ const rotaFor = (plan: BowlingPlan, xi: Player[], seed: number) =>
 
 export function simulateFieldingInnings(
   opponent: Club, bagshotXI: Player[], plan: BowlingPlan, seed: number,
-  forms?: Record<string, number>, fields?: (Field | null)[],
+  forms?: Record<string, number>, fields?: FieldOrder[],
 ): InningsResult {
   const rng = firstRng(seed)
   return simulateInnings({
@@ -55,7 +55,7 @@ export function simulateFieldingInnings(
 
 export function simulateBattingInnings(
   opponent: Club, bagshotOrder: Player[], target: number, seed: number,
-  forms?: Record<string, number>, intents?: (Intent | null)[],
+  forms?: Record<string, number>, orders?: Order[],
 ): InningsResult {
   const rng = secondRng(seed)
   return simulateInnings({
@@ -66,7 +66,7 @@ export function simulateBattingInnings(
     // They captain themselves — bowlers and fields both.
     rota: rotaFor(emptyPlan(), opponent.xi, (seed ^ 0x51ed270b) >>> 0),
     target,
-    intents,
+    orders,
     forms,
     rng,
     stateSeed: (seed ^ 0x9e3779b9) >>> 0,

@@ -43,38 +43,61 @@ const settledColour = (settled: number) =>
  * without the playback having to tick 270 times an innings.
  */
 type FeedItem =
-  | { kind: 'over'; key: string; over: OverSummary }
+  | { kind: 'over'; key: string; over: OverSummary; upTo: number }
   | { kind: 'event'; key: string; event: BallEvent }
 
+/**
+ * How many tokens of an over had been bowled by ball `ball`.
+ *
+ * Wides and no-balls are tokens but not legal deliveries, so this can't be
+ * arithmetic on the token index — it has to walk them.
+ */
+function tokensBy(over: OverSummary, ball: number): number {
+  let legal = over.fromBall
+  for (let i = 0; i < over.balls.length; i++) {
+    const t = over.balls[i]
+    if (t !== 'wd' && t !== 'nb') legal++
+    if (legal > ball) return i
+  }
+  return over.balls.length
+}
+
 export function Sim({
-  innings, eyebrow, title, breakAfter = [], onBreak, startAt = 0, onDone,
+  innings, eyebrow, title, stopAt = [], onBreak, startAt = 0, onDone,
 }: {
   innings: InningsResult
   eyebrow: string
   title: string
   /**
-   * Overs to halt on, for the drinks breaks. The innings prop is swapped for a
-   * re-simulated one while we're stopped — playback must not restart, which is
-   * why `step` is never reset on a prop change. The prefix is identical, so the
-   * swap is invisible.
+   * Balls to halt on: the nine-over marks, and every wicket that brings a new
+   * batter in. Counted in balls rather than overs because a wicket falls
+   * mid-over, and stopping at the end of it would mean the new man faced up to
+   * five deliveries before anybody got to speak to him.
+   *
+   * The innings prop is swapped for a re-simulated one while we're stopped —
+   * playback must not restart, which is why `step` is never reset on a prop
+   * change. The prefix is identical, so the swap is invisible.
    */
-  breakAfter?: number[]
-  onBreak?: (over: number) => void
-  /** Overs already played, so coming back from a break resumes rather than replays. */
+  stopAt?: number[]
+  onBreak?: (ball: number) => void
+  /** Balls already played, so coming back from a break resumes rather than replays. */
   startAt?: number
   onDone: () => void
 }) {
-  const [step, setStep] = useState(startAt)
+  const overs = innings.overSummaries
+  /** The over index to resume on — the one containing the ball we stopped at. */
+  const resumeStep = overs.findIndex((o) => o.fromBall + o.balls.length > startAt)
+  const [step, setStep] = useState(resumeStep < 0 ? overs.length : resumeStep)
   const [feed, setFeed] = useState<FeedItem[]>([])
   const [flash, setFlash] = useState<string | null>(null)
   const [speed, setSpeed] = useState(1)
   const [paused, setPaused] = useState(false)
 
   const done = useRef(false)
-  const seenOvers = useRef(new Set<number>())
-  /** Breaks already taken, so resuming doesn't stop on the same over again. */
-  const taken = useRef(new Set<number>())
-  const overs = innings.overSummaries
+  /** How much of each over the feed is showing, so a part-over can grow. */
+  const shown = useRef(new Map<number, number>())
+  /** Breaks already taken, so resuming doesn't stop on the same ball again. */
+  const taken = useRef(new Set<number>(stopAt.filter((b) => b <= startAt)))
 
   useEffect(() => {
     if (step >= overs.length) {
@@ -87,31 +110,44 @@ export function Sim({
     }
 
     const summary = overs[step]
+    const lastBall = summary.fromBall + summary.balls.length
+    // The first stop inside this over that we haven't already taken.
+    const stop = stopAt
+      .filter((b) => b > summary.fromBall && b <= lastBall && !taken.current.has(b))
+      .sort((a, b) => a - b)[0]
+    const upTo = stop === undefined ? summary.balls.length : tokensBy(summary, stop)
     let delay = TICK_MS
 
-    if (!seenOvers.current.has(summary.over)) {
-      seenOvers.current.add(summary.over)
-      const fresh = innings.events.filter((e) => e.over === summary.over)
-      const items: FeedItem[] = [
-        { kind: 'over', key: `o${summary.over}`, over: summary },
-        ...fresh.slice().reverse().map((e, i) => ({
-          kind: 'event' as const, key: `e${summary.over}-${i}`, event: e,
-        })),
-      ]
-      setFeed((prev) => [...items, ...prev].slice(0, FEED_LENGTH))
+    if ((shown.current.get(summary.over) ?? 0) < upTo) {
+      const from = shown.current.get(summary.over) ?? 0
+      shown.current.set(summary.over, upTo)
+      // Only the events inside the part of the over we're now showing.
+      const fresh = innings.events.filter(
+        (e) => e.over === summary.over && e.ball > summary.fromBall + from && e.ball <= (stop ?? lastBall),
+      )
+      const item: FeedItem = { kind: 'over', key: `o${summary.over}`, over: summary, upTo }
+      setFeed((prev) => {
+        // An over already in the feed is *replaced* rather than repeated, so a
+        // part-finished one grows into the full strip when play resumes.
+        const rest = prev.filter((f) => f.key !== item.key)
+        const events: FeedItem[] = fresh.slice().reverse().map((e, i) => ({
+          kind: 'event' as const, key: `e${summary.over}-${e.ball}-${i}`, event: e,
+        }))
+        return [...events, item, ...rest.filter((f) => !events.some((x) => x.key === f.key))]
+          .slice(0, FEED_LENGTH)
+      })
       const big = fresh.find((e) => BIG_EVENTS.includes(e.type))
       if (big) {
-        setFlash(`${big.type === 'wicket' ? 'red' : 'gold'}-${step}`)
+        setFlash(`${big.type === 'wicket' ? 'red' : 'gold'}-${step}-${upTo}`)
         delay = TICK_BIG_MS
       }
     }
 
-    // Drinks. Stop on the break over rather than ticking past it, and only
-    // once — coming back from the break, `taken` is already set so play
-    // resumes straight through.
-    if (onBreak && breakAfter.includes(summary.over) && !taken.current.has(summary.over)) {
-      taken.current.add(summary.over)
-      const t = setTimeout(() => onBreak(summary.over), delay / speed)
+    // A break. Stop on the ball rather than ticking past it, and only once —
+    // coming back, `taken` is already set so play resumes straight through.
+    if (onBreak && stop !== undefined) {
+      taken.current.add(stop)
+      const t = setTimeout(() => onBreak(stop), delay / speed)
       return () => clearTimeout(t)
     }
 
@@ -120,14 +156,28 @@ export function Sim({
     if (paused) return
     const t = setTimeout(() => setStep((s) => s + 1), delay / speed)
     return () => clearTimeout(t)
-  }, [step, speed, paused, overs, innings.events, onDone, onBreak, breakAfter])
+  }, [step, speed, paused, overs, innings.events, onDone, onBreak, stopAt])
 
   const finished = step >= overs.length
   const now = overs[Math.min(step, overs.length - 1)]
-  const runs = finished || !now ? innings.runs : now.total
-  const wkts = finished || !now ? innings.wickets : now.totalWkts
-  const ballsBowled = finished || !now ? innings.balls : now.over * RULES.ballsPerOver
-  const oversDone = finished || !now ? innings.balls / 6 : now.over
+  /** Where in the innings the *display* has got to, which may be mid-over. */
+  const at = finished || !now
+    ? innings.balls
+    : now.fromBall + Math.min(shown.current.get(now.over) ?? 0, now.balls.length)
+  const partial = !finished && now !== undefined && (shown.current.get(now.over) ?? 0) < now.balls.length
+  // Mid-over, the running total has to be reconstructed from the strip rather
+  // than read off the over summary, which is the score at the *end* of it.
+  const scored = !partial || !now ? 0 : now.balls.slice(0, shown.current.get(now.over) ?? 0)
+    .reduce((s, t) => s + (t === 'wd' || t === 'nb' ? 1 : t === '.' ? 0 : parseInt(t, 10) || 0), 0)
+  const outs = !partial || !now ? 0
+    : now.balls.slice(0, shown.current.get(now.over) ?? 0).filter((t) => t === 'W').length
+  const before = !now ? 0 : now.total - now.runs
+  const beforeWkts = !now ? 0 : now.totalWkts - now.wkts
+
+  const runs = finished || !now ? innings.runs : partial ? before + scored : now.total
+  const wkts = finished || !now ? innings.wickets : partial ? beforeWkts + outs : now.totalWkts
+  const ballsBowled = finished || !now ? innings.balls : at
+  const oversDone = ballsBowled / RULES.ballsPerOver
   const rr = oversDone > 0 ? runs / oversDone : 0
 
   const chasing = innings.target !== null
@@ -138,9 +188,14 @@ export function Sim({
   const dls = chasing ? dlsPar(innings.target! - 1, runs, wkts, ballsBowled) : null
 
   const flashClass = flash ? (flash.startsWith('red') ? 'flash-red' : 'flash-gold') : ''
-  // The two men in the middle, as they stood at the end of the last completed
-  // over. The single most useful thing on this screen during a chase.
-  const atCrease = finished || !now ? [] : now.atCrease
+  // The two men in the middle, as they stood at the end of the last *completed*
+  // over — mid-over the current summary describes a future that hasn't been
+  // shown yet. The single most useful thing on this screen during a chase.
+  const atCrease = finished || !now
+    ? []
+    : partial
+      ? overs[step - 1]?.atCrease ?? []
+      : now.atCrease
 
   return (
     <div className="pt-8 pop">
@@ -297,7 +352,9 @@ export function Sim({
                       {o.bowlerName.split(' ').slice(-1)[0].toUpperCase()}
                     </span>
                     <span className="flex gap-1 flex-wrap flex-1">
-                      {o.balls.map((t, bi) => {
+                      {/* Only what's been bowled — a part-finished over grows
+                          into the full strip when play resumes. */}
+                      {o.balls.slice(0, item.upTo).map((t, bi) => {
                         const s = tokenStyle(t)
                         return (
                           <span
@@ -311,7 +368,7 @@ export function Sim({
                       })}
                     </span>
                     <span className="disp num text-[11px] shrink-0" style={{ color: theme.muted }}>
-                      {o.runs}
+                      {item.upTo >= o.balls.length ? o.runs : '·'}
                     </span>
                   </div>
                 )

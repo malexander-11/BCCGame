@@ -408,6 +408,42 @@ for (let i = 0; i < 300; i++) {
 }
 check('rota preview matches reality', previewMismatch, 0, 0, (v) => v)
 
+// The attack screen reads every bowler's analysis out of his most recent over
+// summary. That's only honest if the snapshot really is what he had bowled by
+// then — reading his final card instead would tell you how the innings turns
+// out before you'd picked who bowls the next nine.
+let figureDrift = 0
+for (let i = 0; i < 200; i++) {
+  const innings = simulateFieldingInnings(
+    evenOpponents[i % evenOpponents.length], BAGSHOT_XI, emptyPlan(), i * 7919 + 23,
+  )
+  for (const mark of [9, 18, 27, 36]) {
+    const upTo = innings.overSummaries.filter((o) => o.over <= mark)
+    if (upTo.length === 0) continue
+    // Everyone's figures as the screen would show them.
+    const shown = new Map()
+    for (const o of upTo) shown.set(o.bowlerId, o.figures)
+    // ...against what those overs actually contained, ball by ball. Byes and
+    // leg byes go against the team and never the bowler, which is exactly why
+    // adding up over totals wouldn't do.
+    for (const [id, f] of shown) {
+      const strips = upTo.filter((o) => o.bowlerId === id).flatMap((o) => o.balls)
+      const legal = strips.filter((t) => t !== 'wd' && t !== 'nb').length
+      const charged = strips.reduce((s, t) => {
+        if (t === 'wd' || t === 'nb') return s + 1
+        if (/[a-z]/.test(t)) return s                 // byes and leg byes
+        return s + (parseInt(t, 10) || 0)
+      }, 0)
+      if (f.balls !== legal) figureDrift++
+      if (f.runs !== charged) figureDrift++
+      const final = innings.bowling.find((b) => b.playerId === id)
+      // And it must never be ahead of where he ends up.
+      if (final && (f.runs > final.runs || f.wickets > final.wickets)) figureDrift++
+    }
+  }
+}
+check('figures at a break are the figures then', figureDrift, 0, 0, (v) => v)
+
 // The whole live-bowling design rests on this: deciding block three cannot
 // reach backwards and re-deal blocks one and two. Each block's rota comes from
 // its own seeded stream for exactly that reason — share one and every later
@@ -608,7 +644,8 @@ console.log('\n\x1b[1mThe field\x1b[0m')
 // same setting has to be a different deal for different bowlers. Without the
 // second half it's one multiplier applied to everybody, which is exactly the
 // mistake the first version of batting intent made.
-const allField = (f) => Array(BLOCK_COUNT).fill(f)
+/** One setting, from the first ball to the last. */
+const allField = (f) => [{ at: 0, field: f }]
 if (goodPlan) {
   const totals = FIELDS.map((f) => ({ f: f.id, runs: concede(goodPlan, allField(f.id)) }))
   const spread = totals.find((t) => t.f === 'spread').runs
@@ -1007,46 +1044,114 @@ check('blocking works for a good player', dEff(85).wicket, 0.70, 0.88, (v) => v.
 check('...and barely helps a tailender', dEff(25).wicket, 0.88, 0.98, (v) => v.toFixed(2))
 
 // Intent has to move the actual innings, not just the multipliers.
-const chaseWith = (intent, target) => {
+const chaseOrder = autoBattingOrder(BAGSHOT_XI)
+/** Tell everybody the same thing from ball one. */
+const everyone = (intent) => chaseOrder.map((p) => ({ at: 0, playerId: p.id, intent }))
+const chaseWith = (orders, target) => {
   const runs = [], wkts = []
   for (let i = 0; i < 700; i++) {
     const opp = evenOpponents[i % evenOpponents.length]
-    const inn = simulateBattingInnings(
-      opp, autoBattingOrder(BAGSHOT_XI), target + 1, i * 7919 + 5, undefined,
-      Array(5).fill(intent),
-    )
+    const inn = simulateBattingInnings(opp, chaseOrder, target + 1, i * 7919 + 5, undefined, orders)
     runs.push(inn.runs); wkts.push(inn.wickets)
   }
   return { runs: mean(runs), wkts: mean(wkts) }
 }
-const defended = chaseWith('defend', 400)   // unreachable, so they just bat
-const attacked = chaseWith('attack', 400)
+const defended = chaseWith(everyone('defend'), 400)   // unreachable, so they just bat
+const attacked = chaseWith(everyone('attack'), 400)
 check('attack scores more than defend', attacked.runs - defended.runs, 25, 200, (v) => `+${Math.round(v)}`)
 check('...and loses more wickets', attacked.wkts - defended.wkts, 0.4, 5, (v) => `+${v.toFixed(2)}`)
 
-// The drinks break re-simulates the whole innings with a fuller plan. That is
-// only honest if everything before the block you changed comes out identical —
-// the entire interactive design rests on it.
+// ...and orders are **per batter**. Tell the top three to attack and the rest
+// to block and the innings has to land between the two extremes — if it lands
+// on one of them, "per batter" is one team setting wearing a disguise.
+const split = chaseWith(
+  chaseOrder.map((p, i) => ({ at: 0, playerId: p.id, intent: i < 3 ? 'attack' : 'defend' })),
+  400,
+)
+check(
+  'orders are per batter, not per side',
+  split.runs, defended.runs + 8, attacked.runs - 8, (v) => Math.round(v),
+)
+console.log(`  \x1b[90mall defend ${defended.runs.toFixed(0)} · top three attack ${split.runs.toFixed(0)} · all attack ${attacked.runs.toFixed(0)}\x1b[0m`)
+
+// A break re-simulates the whole innings with a longer log. That is only honest
+// if everything before the ball you changed comes out identical — the entire
+// interactive design rests on it, and now that orders are stamped in balls
+// rather than blocks, the guarantee has to hold to the ball.
 let prefixDrift = 0
 for (let i = 0; i < 200; i++) {
   const opp = evenOpponents[i % evenOpponents.length]
   const seed = i * 104729 + 11
-  const order = autoBattingOrder(BAGSHOT_XI)
-  const before = simulateBattingInnings(opp, order, 190, seed, undefined,
-    ['push', null, null, null, null])
-  const after = simulateBattingInnings(opp, order, 190, seed, undefined,
-    ['push', 'attack', null, null, null])
-  // Overs 1-9 are block one, unchanged in both.
-  for (let ov = 1; ov <= 9; ov++) {
-    const a = before.overSummaries.find((o) => o.over === ov)
-    const b = after.overSummaries.find((o) => o.over === ov)
-    if (!a || !b) continue
+  const base = [{ at: 0, playerId: chaseOrder[0].id, intent: 'push' }]
+  const before = simulateBattingInnings(opp, chaseOrder, 190, seed, undefined, base)
+  // Speak to somebody halfway through, exactly as a wicket break does.
+  const cut = 27 * RULES.ballsPerOver
+  const after = simulateBattingInnings(opp, chaseOrder, 190, seed, undefined, [
+    ...base,
+    ...chaseOrder.map((p) => ({ at: cut, playerId: p.id, intent: 'attack' })),
+  ])
+  for (const a of before.overSummaries) {
+    if (a.fromBall >= cut) break
+    const b = after.overSummaries.find((o) => o.over === a.over)
+    if (!b) continue
     if (a.total !== b.total || a.totalWkts !== b.totalWkts || a.balls.join() !== b.balls.join()) {
       prefixDrift++
     }
   }
 }
-check('re-simulation keeps the earlier overs', prefixDrift, 0, 0, (v) => v)
+check('re-simulation keeps the earlier balls', prefixDrift, 0, 0, (v) => v)
+
+// An order given at a wicket has to reach the new man's **first** ball. Play
+// stops on the wicket rather than at the end of the over for exactly this
+// reason: otherwise he faces up to five deliveries under somebody else's
+// instructions before anybody speaks to him.
+//
+// Note this can't be checked ball for ball. An order moves the *probabilities*,
+// not the outcomes — the same roll often lands in the same bucket either way,
+// so "the very next ball must differ" fails two thirds of the time for a
+// perfectly correct engine. What it must do is bite when it's given, so compare
+// the same order given at the wicket against given at the end of that over.
+let prefixLeak = 0, timingBit = 0, wicketsTested = 0
+for (let i = 0; i < 400; i++) {
+  const opp = evenOpponents[i % evenOpponents.length]
+  const seed = i * 7919 + 31
+  const plain = simulateBattingInnings(opp, chaseOrder, 400, seed)
+  const fall = plain.fow.find((f) => f.incoming !== undefined && f.ball > 30)
+  if (!fall) continue
+  const over = plain.overSummaries.find(
+    (o) => o.fromBall < fall.ball && o.fromBall + o.balls.length >= fall.ball,
+  )
+  // Only interesting when he actually has balls left to face in that over.
+  const endOfOver = over ? over.fromBall + over.balls.filter((t) => t !== 'wd' && t !== 'nb').length : 0
+  if (!over || endOfOver - fall.ball < 2) continue
+  wicketsTested++
+
+  const at = (ball) => simulateBattingInnings(opp, chaseOrder, 400, seed, undefined,
+    [{ at: ball, playerId: fall.incoming.playerId, intent: 'defend' }])
+  const onTime = at(fall.ball)
+  const late = at(endOfOver)
+
+  // Every over that *finished* before the wicket is untouched. The over the
+  // wicket falls in isn't, and mustn't be — that's the point.
+  for (const a of plain.overSummaries) {
+    if (a.fromBall + a.balls.length > fall.ball) break
+    const b = onTime.overSummaries.find((o) => o.over === a.over)
+    if (b && a.balls.join() !== b.balls.join()) prefixLeak++
+  }
+  if (onTime.runs !== late.runs || onTime.wickets !== late.wickets) timingBit++
+}
+check('a wicket order never leaks backwards', prefixLeak, 0, 0, (v) => v)
+// The floor is low on purpose and the arithmetic says why: most of these
+// wickets leave only two or three balls in the over, and a single ball changes
+// its outcome maybe one time in eight even under a completely different order,
+// because the roll has to cross a bucket boundary to show up at all. Two balls
+// at one in eight is about a fifth. What would fail here is the thing worth
+// catching — an order that quietly doesn't apply until the next over.
+check(
+  'and when it lands changes the innings',
+  wicketsTested === 0 ? 0 : (timingBit / wicketsTested) * 100, 10, 100, (v) => v.toFixed(0) + '%',
+)
+console.log(`  \x1b[90m${wicketsTested} wickets with balls left in the over\x1b[0m`)
 
 console.log('\n\x1b[1mFresh air and squad churn\x1b[0m')
 check('fresh air games per match', mean(freshAirPerMatch), 0.5, 3, (v) => v.toFixed(2))

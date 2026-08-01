@@ -1,7 +1,9 @@
-import { blockOf, fieldPush, intentPush, phaseOf, RING_PUSH, RULES } from '../data/types'
+import {
+  blockOf, fieldAt, fieldPush, intentPush, orderFor, phaseOf, RING_PUSH, RULES,
+} from '../data/types'
 import type {
-  BallEvent, BatterCard, BowlerCard, Dismissal, DismissalKind, Extras, Field, FowEntry,
-  InningsResult, Intent, OverSummary, Player, Rota,
+  BallEvent, BatterCard, BowlerCard, Dismissal, DismissalKind, Extras, FieldOrder, FowEntry,
+  InningsResult, Order, OverSummary, Player, Rota,
 } from '../data/types'
 import {
   clamp, duel, makeBatterState, makeBowlerState, swingBoost,
@@ -33,19 +35,16 @@ export interface InningsInput {
   /** Runs required to win. Null in the first innings. */
   target: number | null
   /**
-   * What the batters were told, one entry per nine-over block. Only read when
-   * chasing — a side setting a total plays to its own judgement.
+   * What each batter was told, and when. Only read when chasing — a side
+   * setting a total plays to its own judgement.
    *
-   * A gap means nobody has called that block yet, and the side reads the game
-   * for itself off the live state. That covers the opposition, the auto
-   * manager, and the blocks ahead of wherever the drinks break has got to.
+   * A batter with nothing said to him reads the game for himself off the live
+   * state. That covers the opposition, the auto manager, and everyone ahead of
+   * wherever the breaks have got to.
    */
-  intents?: (Intent | null | undefined)[]
-  /**
-   * Where the fielders were, one entry per nine-over block. A gap is filled the
-   * same way — the captain reads the score in front of him.
-   */
-  fields?: (Field | null | undefined)[]
+  orders?: Order[]
+  /** Where the fielders were told to stand, and when. Filled the same way. */
+  fields?: FieldOrder[]
   /**
    * Tracked season form by player id, for either side. Absent in a friendly,
    * where the streaky per-innings roll is used instead.
@@ -358,7 +357,7 @@ const phaseFor = (over: number) => PHASE[phaseOf(over)]
 export function simulateInnings(input: InningsInput): InningsResult {
   const { battingOrder, fieldingXI, rota, target, rng, forms } = input
   const chasing = target !== null
-  const intents = input.intents ?? []
+  const orders = input.orders ?? []
   const fields = input.fields ?? []
 
   /** One private stream per player, so nobody's form depends on anyone else's. */
@@ -431,11 +430,7 @@ export function simulateInnings(input: InningsInput): InningsResult {
     // How much of the new ball is left, for the non-opener penalty below.
     const shine = newBallShine(over)
 
-    // Where the fielders are. Set per block like the batting orders, and read
-    // off the score for any block nobody has called — so the opposition and the
-    // auto manager captain themselves rather than standing in one shape all day.
-    const setting = fields[blockOf(over)] ?? autoField(blockOf(over), runs, wickets)
-    const fieldPushed = fieldPush(setting)
+    const fromBall = balls
     let ballsThisOver = 0
     let runsThisOver = 0
     let wktsThisOver = 0
@@ -456,13 +451,14 @@ export function simulateInnings(input: InningsInput): InningsResult {
       // worth reading. Setting a total is still the side's own judgement.
       let push: number
       if (chasing) {
-        // Blocks nobody has called are read off the live state, so the
-        // opposition and the auto manager play the situation in front of them
-        // rather than a guess made before the innings started. Still a pure
-        // function of the score, so re-simulation stays reproducible.
-        const called = intents[blockOf(over)]
+        // Per batter, and only the man on strike. Anyone nobody has spoken to
+        // reads the game for himself off the live state — including how set he
+        // is, because a man who has just walked in plays himself in. Still a
+        // pure function of the score, so re-simulation stays reproducible.
+        const called = orderFor(orders, batter.player.id, balls)
         push = intentPush(
-          called ?? autoIntent(target! - runs, RULES.balls - balls, wickets),
+          called
+          ?? autoIntent(target! - runs, RULES.balls - balls, wickets, confidence(card.balls)),
         )
       } else {
         // Bat to be about seven down at the close. Wickets in hand licence you
@@ -505,9 +501,16 @@ export function simulateInnings(input: InningsInput): InningsResult {
       const lapse = 1 + LAPSE_PER_BALL * Math.max(0, card.balls - SET_AT_BALLS)
       const settleWicket = lerp(NEW_RISK, SET_RISK, conf) * lapse
 
-      // The field is priced against the man actually facing it.
+      // Where the fielders are. Read per ball rather than per over, because a
+      // wicket falls mid-over and bringing the catchers in for the new man is
+      // the whole reason play stops there. Anything nobody has called is read
+      // off the score, so the opposition and the auto manager captain
+      // themselves rather than standing in one shape all afternoon.
+      const setting = fieldAt(fields, balls)
+        ?? autoField(blockOf(over), runs, wickets)
+      // ...and it's priced against the man actually facing it.
       const field = fieldEffect(
-        fieldPushed, bowler.player.bowl.def, bowler.player.bowl.att, conf,
+        fieldPush(setting), bowler.player.bowl.def, bowler.player.bowl.att, conf,
       )
       const settleRuns = lerp(NEW_SCORING, SET_SCORING, scoringConfidence(card.balls))
 
@@ -596,8 +599,14 @@ export function simulateInnings(input: InningsInput): InningsResult {
         card.out = dismissal
         if (how !== 'run out') bowlerCard.wickets++
 
+        const next = wickets < RULES.wickets ? battingOrder[nextIn] : undefined
         fow.push({
           score: runs, wkt: wickets, batter: card.name, at: formatOvers(balls),
+          // The exact ball, so play can stop on it rather than at the end of
+          // the over — otherwise the new man faces up to five deliveries before
+          // anybody gets to speak to him.
+          ball: balls,
+          incoming: next ? { playerId: next.id, name: next.name } : undefined,
         })
         say('wicket', `OUT! ${card.name} ${dismissal.text} — ${card.runs} (${card.balls})`, over)
         ballTokens.push('W')
@@ -674,6 +683,7 @@ export function simulateInnings(input: InningsInput): InningsResult {
     const atCrease = [striker, nonStriker]
       .filter((i) => i < cards.length && cards[i].batted && cards[i].out === null)
       .map((i) => ({
+        playerId: cards[i].playerId,
         name: cards[i].name,
         runs: cards[i].runs,
         balls: cards[i].balls,
@@ -683,13 +693,22 @@ export function simulateInnings(input: InningsInput): InningsResult {
 
     overSummaries.push({
       over,
+      bowlerId: bowlerCard.playerId,
       bowlerName: bowlerCard.name,
       runs: runsThisOver,
       wkts: wktsThisOver,
       total: runs,
       totalWkts: wickets,
+      fromBall,
       balls: ballTokens,
       atCrease,
+      // A copy, not the live card — it has to say what he had bowled *by then*.
+      figures: {
+        balls: bowlerCard.balls,
+        maidens: bowlerCard.maidens,
+        runs: bowlerCard.runs,
+        wickets: bowlerCard.wickets,
+      },
     })
 
     // Ends change at the end of every completed over.

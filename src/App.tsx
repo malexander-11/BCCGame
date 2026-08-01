@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { BLOCK_COUNT, BLOCK_OVERS, BREAK_OVERS } from './data/types'
+import { BLOCK_OVERS, BREAK_OVERS, orderFor, RULES } from './data/types'
 import type {
-  BowlingPlan as Plan, Club, Field, InningsResult, Intent, MatchResult, Player,
+  BowlingPlan as Plan, Club, Field, FieldOrder, InningsResult, Intent, MatchResult,
+  Order, Player,
 } from './data/types'
 import {
-  autoBattingOrder, autoBlock, autoField, autoIntents, autoSelectXI, emptyPlan,
+  autoBattingOrder, autoBlock, autoField, autoSelectXI, emptyPlan, openingIntent,
 } from './engine/ai'
 import { buildMatchResult, simulateBattingInnings, simulateFieldingInnings } from './engine/match'
 import { oversBowled } from './engine/rota'
@@ -29,12 +30,13 @@ import { Sim } from './screens/Sim'
 import { InningsBreak } from './screens/InningsBreak'
 import { BattingOrder } from './screens/BattingOrder'
 import { DrinksBreak } from './screens/DrinksBreak'
+import { WicketBreak } from './screens/WicketBreak'
 import { Result } from './screens/Result'
 import { Squad } from './screens/Squad'
 
 type Screen =
   | 'home' | 'squad' | 'season' | 'stats' | 'selection' | 'plan'
-  | 'sim1' | 'break' | 'order' | 'sim2' | 'drinks' | 'result'
+  | 'sim1' | 'wicket1' | 'break' | 'order' | 'sim2' | 'drinks' | 'wicket2' | 'result'
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>('home')
@@ -51,20 +53,22 @@ export default function App() {
   const [xi, setXi] = useState<Player[]>([])
   /** Who bowls each nine-over block. Null means "nobody has called it yet". */
   const [plan, setPlan] = useState<Plan>(emptyPlan)
-  /** Where the fielders stand, one per block. */
-  const [fields, setFields] = useState<(Field | null)[]>(
-    () => Array<Field | null>(BLOCK_COUNT).fill(null),
-  )
+  /**
+   * Where the fielders stand and what each batter is under orders to do —
+   * both append-only logs stamped with the ball they were given on, so a
+   * decision made at over 27 can never reach back and change over 3.
+   */
+  const [fields, setFields] = useState<FieldOrder[]>([])
+  const [orders, setOrders] = useState<Order[]>([])
+  /** What the openers are told before a ball is bowled, by id. */
+  const [opening, setOpening] = useState<Record<string, Intent>>({})
   /** The block the attack screen is currently setting, 0-4. */
   const [block, setBlock] = useState(0)
   const [order, setOrder] = useState<Player[]>([])
-  /** One intent per nine-over block. Null means "nobody has called it yet". */
-  const [intents, setIntents] = useState<(Intent | null)[]>(
-    () => Array<Intent | null>(BLOCK_COUNT).fill(null),
-  )
-  /** The over we're stopped at for drinks, if any. */
+  /** The ball we're stopped at, and which wicket stopped us. */
   const [drinksAt, setDrinksAt] = useState<number | null>(null)
-  /** Overs already watched, so resuming after drinks doesn't replay the chase. */
+  const [fallAt, setFallAt] = useState<number | null>(null)
+  /** Balls already watched, so resuming after a break doesn't replay the chase. */
   const [watchedTo, setWatchedTo] = useState(0)
   /** ...and the same for the innings in the field. */
   const [watchedTo1, setWatchedTo1] = useState(0)
@@ -110,9 +114,11 @@ export default function App() {
       case 'break': return 'break'
       case 'order': return 'break'
       case 'sim2': return 'result'
-      // Drinks is a decision you have to make — there's nowhere behind it, and
-      // the overs it follows have already been bowled.
+      // A break is a decision you have to make — there's nowhere behind it, and
+      // the balls it follows have already been bowled.
       case 'drinks': return 'drinks'
+      case 'wicket1': return 'wicket1'
+      case 'wicket2': return 'wicket2'
       case 'result': return inLeague ? 'season' : 'home'
     }
   }, [inLeague, block])
@@ -181,12 +187,14 @@ export default function App() {
     setXi(preset)
     setOrder(preset)
     setPlan(emptyPlan())
-    setFields(Array<Field | null>(BLOCK_COUNT).fill(null))
+    setFields([])
     setBlock(0)
-    setIntents(Array<Intent | null>(BLOCK_COUNT).fill(null))
+    setOrders([])
+    setOpening({})
     setWatchedTo(0)
     setWatchedTo1(0)
     setDrinksAt(null)
+    setFallAt(null)
     setFirst(null)
     setSecond(null)
     setResult(null)
@@ -273,44 +281,67 @@ export default function App() {
   // the overs you have already watched come out ball for ball identical however
   // you change your mind at the break.
 
-  const simulateField = useCallback((blocks: Plan, fs: (Field | null)[]) => {
+  const simulateField = useCallback((blocks: Plan, fs: FieldOrder[]) => {
     if (!opponent) return null
     return simulateFieldingInnings(opponent, xi, blocks, seed, forms, fs)
   }, [opponent, xi, seed, forms])
 
-  /** The next break the innings actually reaches. Null once it's over. */
-  const nextBreak = useCallback((innings: InningsResult, after: number) => {
-    const last = innings.overSummaries[innings.overSummaries.length - 1]?.over ?? 0
-    return BREAK_OVERS.find((o) => o > after && o < last) ?? null
+  /**
+   * Every ball the innings should stop on: the four nine-over marks, and every
+   * wicket that brings a new batter in.
+   *
+   * Counted in balls, because a wicket falls mid-over — the whole point of
+   * stopping there is that the new man gets his instructions before his first
+   * delivery rather than his sixth.
+   */
+  const stopsIn = useCallback((innings: InningsResult) => {
+    const last = innings.balls
+    const marks = BREAK_OVERS.map((o) => o * RULES.ballsPerOver)
+    const falls = innings.fow.filter((f) => f.incoming !== undefined).map((f) => f.ball)
+    return [...new Set([...marks, ...falls])].filter((b) => b > 0 && b < last).sort((a, b) => a - b)
+  }, [])
+
+  /** The next stop the innings actually reaches. Null once it's over. */
+  const nextBreak = useCallback((innings: InningsResult, after: number) =>
+    stopsIn(innings).find((b) => b > after) ?? null, [stopsIn])
+
+  /** Send the manager wherever the ball we just stopped on belongs. */
+  const openBreak = useCallback((innings: InningsResult, ball: number, side: 'field' | 'chase') => {
+    const fall = innings.fow.find((f) => f.ball === ball && f.incoming !== undefined)
+    if (fall) {
+      setFallAt(ball)
+      setScreen(side === 'field' ? 'wicket1' : 'wicket2')
+      return
+    }
+    if (side === 'field') { setBlock(ball / (BLOCK_OVERS * RULES.ballsPerOver)); setScreen('plan'); return }
+    setDrinksAt(ball)
+    setScreen('drinks')
   }, [])
 
   /** Take the field for the block just set, and run to the next break. */
-  const bowlOn = useCallback(() => {
-    const innings = simulateField(plan, fields)
+  const bowlOn = useCallback((extraField?: FieldOrder) => {
+    const fs = extraField ? [...fields, extraField] : fields
+    if (extraField) setFields(fs)
+    const innings = simulateField(plan, fs)
     if (!innings) return
     setFirst(innings)
-    const from = block * BLOCK_OVERS
+    const from = extraField ? extraField.at : block * BLOCK_OVERS * RULES.ballsPerOver
     setWatchedTo1(from)
+    setFallAt(null)
     // Instant results skips the playback, not the management — the breaks are
     // the game, so they still happen.
     if (prefs.instant) {
       const nb = nextBreak(innings, from)
-      if (nb !== null) { setBlock(nb / BLOCK_OVERS); return }
+      if (nb !== null) { openBreak(innings, nb, 'field'); return }
       setScreen('break')
       return
     }
     setScreen('sim1')
-  }, [simulateField, plan, fields, block, prefs.instant, nextBreak])
+  }, [simulateField, plan, fields, block, prefs.instant, nextBreak, openBreak])
 
-  /**
-   * Stopped at a drinks break in the field: work out which block is next and
-   * open the attack screen on it, pre-filled with what the auto captain would
-   * do so tapping straight through is always a sensible option.
-   */
-  const fieldBreak = useCallback((over: number) => {
-    setBlock(over / BLOCK_OVERS)
-    setScreen('plan')
-  }, [])
+  const fieldBreak = useCallback((ball: number) => {
+    if (first) openBreak(first, ball, 'field')
+  }, [first, openBreak])
 
   /**
    * Run the chase with the intents decided so far.
@@ -320,12 +351,9 @@ export default function App() {
    * ball identical — which is what lets the break be a genuine mid-innings
    * decision rather than a plan made before the openers walked out.
    */
-  const simulateChase = useCallback((list: (Intent | null)[]) => {
+  const simulateChase = useCallback((list: Order[]) => {
     if (!opponent || !first) return null
-    const target = first.runs + 1
-    const auto = autoIntents(target)
-    const resolved = list.map((v, i) => v ?? auto[i])
-    return simulateBattingInnings(opponent, order, target, seed, forms, resolved)
+    return simulateBattingInnings(opponent, order, first.runs + 1, seed, forms, list)
   }, [opponent, first, order, seed, forms])
 
   /** The chase is done — bank it. */
@@ -340,7 +368,12 @@ export default function App() {
   }, [opponent, first, seed, order, xi, inLeague, season, squad, persistSeason])
 
   const startChase = useCallback(() => {
-    const innings = simulateChase(intents)
+    // What the openers were told on the order screen, stamped at ball zero.
+    const opened: Order[] = Object.entries(opening).map(([playerId, intent]) => ({
+      at: 0, playerId, intent,
+    }))
+    setOrders(opened)
+    const innings = simulateChase(opened)
     if (!innings) return
     setSecond(innings)
     setWatchedTo(0)
@@ -348,34 +381,42 @@ export default function App() {
     // the game, so they still happen.
     if (prefs.instant) {
       const nb = nextBreak(innings, 0)
-      if (nb !== null) { setDrinksAt(nb); setScreen('drinks'); return }
+      if (nb !== null) { openBreak(innings, nb, 'chase'); return }
       finishChase(innings)
       setScreen('result')
       return
     }
     setScreen('sim2')
-  }, [simulateChase, intents, prefs.instant, nextBreak, finishChase])
+  }, [simulateChase, opening, prefs.instant, nextBreak, openBreak, finishChase])
 
-  /** Coming out of drinks with an instruction for the next nine overs. */
-  const playOn = useCallback((intent: Intent) => {
-    if (drinksAt === null) return
-    const next = [...intents]
-    next[Math.floor(drinksAt / BLOCK_OVERS)] = intent
-    setIntents(next)
+  /**
+   * Coming out of a break with fresh instructions.
+   *
+   * Orders are appended, never replaced, so re-running the chase reproduces
+   * every ball you've already watched — the earlier balls read exactly the
+   * entries they read the first time.
+   */
+  const playOn = useCallback((at: number, given: Record<string, Intent>) => {
+    const next = [
+      ...orders,
+      ...Object.entries(given).map(([playerId, intent]) => ({ at, playerId, intent })),
+    ]
+    setOrders(next)
     const innings = simulateChase(next)
     if (!innings) return
     setSecond(innings)
-    setWatchedTo(drinksAt)
+    setWatchedTo(at)
     setDrinksAt(null)
+    setFallAt(null)
     if (prefs.instant) {
-      const nb = nextBreak(innings, drinksAt)
-      if (nb !== null) { setDrinksAt(nb); return }
+      const nb = nextBreak(innings, at)
+      if (nb !== null) { openBreak(innings, nb, 'chase'); return }
       finishChase(innings)
       setScreen('result')
       return
     }
     setScreen('sim2')
-  }, [drinksAt, intents, simulateChase, prefs.instant, nextBreak, finishChase])
+  }, [orders, simulateChase, prefs.instant, nextBreak, openBreak, finishChase])
 
   const toggleInstant = useCallback(() => {
     setPrefs((p) => {
@@ -435,6 +476,13 @@ export default function App() {
     const at = first?.overSummaries.find((o) => o.over === block * BLOCK_OVERS)
     return autoField(block, at?.total ?? 0, at?.totalWkts ?? 0)
   }, [block, first])
+
+  /** What the attack screen currently has selected, defaulting to the advice. */
+  const [chosenField, setChosenField] = useState<Field | null>(null)
+  const blockField = chosenField ?? suggestedField
+  const setBlockField = useCallback((f: Field) => setChosenField(f), [])
+  // A new block is a fresh decision — don't carry the last one's setting over.
+  useEffect(() => { setChosenField(null) }, [block])
 
   const body = (() => {
     switch (screen) {
@@ -498,17 +546,19 @@ export default function App() {
             used={bowledSoFar}
             previous={lastBowler}
             beforeThat={beforeLast}
-            field={fields[block] ?? suggestedField}
+            field={blockField}
             suggestedField={suggestedField}
             innings={block === 0 ? null : first}
             seed={seed}
             onChange={(b) => setPlan((prev) => prev.map((v, i) => (i === block ? b : v)))}
-            onField={(f) => setFields((prev) => prev.map((v, i) => (i === block ? f : v)))}
+            onField={setBlockField}
             onAuto={() => setPlan((prev) => prev.map((v, i) => (
               i === block ? autoBlock(xi, block, bowledSoFar, lastBowler) : v
             )))}
             onBack={block === 0 ? () => setScreen('selection') : undefined}
-            onNext={bowlOn}
+            onNext={() => bowlOn({
+              at: block * BLOCK_OVERS * RULES.ballsPerOver, field: blockField,
+            })}
           />
         )
 
@@ -518,10 +568,22 @@ export default function App() {
             innings={first}
             eyebrow="FIRST INNINGS · YOU ARE IN THE FIELD"
             title={`${opponent.name} batting`}
-            breakAfter={BREAK_OVERS}
+            stopAt={stopsIn(first)}
             startAt={watchedTo1}
             onBreak={fieldBreak}
             onDone={() => setScreen('break')}
+          />
+        )
+
+      case 'wicket1':
+        return first && fallAt !== null && (
+          <WicketBreak
+            innings={first}
+            fall={first.fow.find((f) => f.ball === fallAt)!}
+            order={opponent?.xi ?? []}
+            xi={xi}
+            mode="fielding"
+            onPlayOn={({ field }) => bowlOn({ at: fallAt, field: field! })}
           />
         )
 
@@ -547,9 +609,9 @@ export default function App() {
                   )
                 : undefined
             }
-            intent={intents[0] ?? autoIntents(first.runs + 1)[0]}
-            suggested={autoIntents(first.runs + 1)[0]}
-            onIntent={(i) => setIntents((prev) => { const n = [...prev]; n[0] = i; return n })}
+            opening={opening}
+            suggested={openingIntent(first.runs + 1)}
+            onIntent={(playerId, i) => setOpening((prev) => ({ ...prev, [playerId]: i }))}
             onChange={setOrder}
             onAuto={() => setOrder(autoBattingOrder(xi))}
             onBack={() => setScreen('break')}
@@ -563,9 +625,9 @@ export default function App() {
             innings={second}
             eyebrow="SECOND INNINGS · THE CHASE"
             title={`Bagshot need ${second.target}`}
-            breakAfter={BREAK_OVERS}
+            stopAt={stopsIn(second)}
             startAt={watchedTo}
-            onBreak={(over) => { setDrinksAt(over); setScreen('drinks') }}
+            onBreak={(ball) => openBreak(second, ball, 'chase')}
             onDone={() => { finishChase(second); setScreen('result') }}
           />
         )
@@ -575,8 +637,26 @@ export default function App() {
           <DrinksBreak
             innings={second}
             order={order}
-            afterOver={drinksAt}
-            onPlayOn={playOn}
+            afterOver={drinksAt / RULES.ballsPerOver}
+            standing={(id) => orderFor(orders, id, drinksAt)}
+            onPlayOn={(given) => playOn(drinksAt, given)}
+          />
+        )
+
+      case 'wicket2':
+        return second && fallAt !== null && (
+          <WicketBreak
+            innings={second}
+            fall={second.fow.find((f) => f.ball === fallAt)!}
+            order={order}
+            xi={opponent?.xi ?? []}
+            mode="batting"
+            onPlayOn={({ intent }) => playOn(
+              fallAt,
+              intent && second.fow.find((f) => f.ball === fallAt)?.incoming
+                ? { [second.fow.find((f) => f.ball === fallAt)!.incoming!.playerId]: intent }
+                : {},
+            )}
           />
         )
 

@@ -90,8 +90,12 @@ const DIVISION: Seed[] = [
  * a good player than a bad one — he converts the start into forty rather than
  * nicking off on twelve — so a deep batting side compounds, and every club in
  * the division needed lifting to keep the table honest.
+ *
+ * And to +13 when orders went per batter. A new man now plays himself in
+ * unless the rate won't wait, which is worth more to a side whose numbers three
+ * to six can bat than to one whose can't.
  */
-const DIVISION_BASELINE = 12
+const DIVISION_BASELINE = 13
 
 // ------------------------------------------------------------------ XI shape
 //
