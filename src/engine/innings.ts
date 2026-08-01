@@ -1,6 +1,6 @@
-import { blockOf, intentPush, RULES } from '../data/types'
+import { blockOf, fieldPush, intentPush, phaseOf, RING_PUSH, RULES } from '../data/types'
 import type {
-  BallEvent, BatterCard, BowlerCard, Dismissal, DismissalKind, Extras, FowEntry,
+  BallEvent, BatterCard, BowlerCard, Dismissal, DismissalKind, Extras, Field, FowEntry,
   InningsResult, Intent, OverSummary, Player, Rota,
 } from '../data/types'
 import {
@@ -8,8 +8,8 @@ import {
   RUNS_DAMPING, SWING_WINDOW, WICKET_DAMPING,
 } from './ratings'
 import type { BatterState, BowlerState } from './ratings'
-import { autoIntent } from './ai'
-import { pickIndex, weighted } from './rng'
+import { autoField, autoIntent } from './ai'
+import { hashString, makeRng, pickIndex, weighted } from './rng'
 import type { Rng } from './rng'
 
 /**
@@ -42,11 +42,27 @@ export interface InningsInput {
    */
   intents?: (Intent | null | undefined)[]
   /**
+   * Where the fielders were, one entry per nine-over block. A gap is filled the
+   * same way — the captain reads the score in front of him.
+   */
+  fields?: (Field | null | undefined)[]
+  /**
    * Tracked season form by player id, for either side. Absent in a friendly,
    * where the streaky per-innings roll is used instead.
    */
   forms?: Record<string, number>
   rng: Rng
+  /**
+   * Seed for the per-player form rolls.
+   *
+   * These deliberately do *not* come out of `rng`. Who is in the attack now
+   * changes mid-innings — that's the whole point of picking bowlers a block at
+   * a time — and drawing their form from the ball stream meant adding a sixth
+   * bowler at the twenty-seventh over shifted every delivery back to the first,
+   * silently re-bowling overs you had already watched. Each player rolls from
+   * his own stream instead, so the ball sequence depends only on the balls.
+   */
+  stateSeed: number
 }
 
 // ---------------------------------------------------------------- base rates
@@ -67,17 +83,17 @@ export interface InningsInput {
 // unchanged and only *when* they fall has moved.
 
 const BASE = {
-  one: 0.270,
-  two: 0.052,
-  three: 0.006,
-  four: 0.050,
-  six: 0.0092,
-  wicket: 0.0212,
+  one: 0.2484,
+  two: 0.0478,
+  three: 0.0055,
+  four: 0.0460,
+  six: 0.00846,
+  wicket: 0.0315,
 } as const
 
 const PHASE = {
-  powerplay: { boundary: 1.05, wicket: 1.10, single: 0.92 },
-  middle: { boundary: 0.88, wicket: 0.92, single: 1.06 },
+  powerplay: { boundary: 1.05, wicket: 1.00, single: 0.92 },
+  middle: { boundary: 0.88, wicket: 1.00, single: 1.06 },
   death: { boundary: 1.45, wicket: 1.40, single: 0.98 },
 } as const
 
@@ -92,6 +108,10 @@ const PHASE = {
  *   spin   gets carted in the powerplay — there's a reason nobody opens with a
  *          spinner — squeezes hard through the middle, and is a liability once
  *          the batters start swinging at the end
+ *
+ * Spin's middle-over squeeze got sharper when confidence replaced the old
+ * "a spinner gets the set batter" wrinkle. That wrinkle was where a lot of
+ * spin's value lived; without it the numbers have to carry it directly.
  *
  * Roughly balanced across a whole innings — an all-pace and an all-spin attack
  * on identical ratings concede within a couple of runs of each other — so this
@@ -113,20 +133,70 @@ const TYPE = {
     death: { boundary: 0.92, wicket: 1.16 },
   },
   spin: {
-    powerplay: { boundary: 1.28, wicket: 0.82 },
-    middle: { boundary: 0.90, wicket: 1.14 },
-    death: { boundary: 1.38, wicket: 0.80 },
+    powerplay: { boundary: 1.22, wicket: 0.82 },
+    middle: { boundary: 0.84, wicket: 1.16 },
+    death: { boundary: 1.30, wicket: 0.80 },
   },
 } as const
 
 /**
- * How much a set batter changes things.
+ * Getting in.
  *
- * A batter who's in murders a seamer but is the one a spinner gets — he's the
- * one trying to hit over the top. Full effect at thirty balls faced.
+ * The main story of a batting innings, and for a long time the engine barely
+ * had it: a new batter was 40% more likely to get out for his first six balls
+ * and after that nothing changed. So everybody scored the same 8 and the
+ * distribution came out with a 39% bulge between one and nine.
+ *
+ * Now confidence runs the whole way from walking out to fully in, and it is a
+ * three-fold swing in risk — the first ball is roughly twice as dangerous as
+ * the baseline, a set batter a little over half. Most of it is won early:
+ * survive a dozen balls and you have done the hard part.
+ *
+ * That is what makes the field decision real. A new man is there to be had and
+ * a set one isn't, so the same attacking field is a good idea against one and an
+ * expensive one against the other — and losing a set batter genuinely hurts,
+ * because whoever replaces him starts again at the bottom of the curve.
  */
-const SET_AT_BALLS = 30
-const SET_WICKET = { pace: -0.06, spin: 0.20 } as const
+const SET_AT_BALLS = 26
+const NEW_RISK = 1.05
+const SET_RISK = 0.52
+const NEW_SCORING = 0.55
+const SET_SCORING = 1.18
+
+/**
+ * How settled a batter is, 0 walking out to 1 fully in.
+ *
+ * Squared easing so the curve is steep at the start and flattens: about half way
+ * in after eight balls, three quarters after thirteen.
+ */
+export function confidence(balls: number): number {
+  const t = clamp(balls / SET_AT_BALLS, 0, 1)
+  return 1 - (1 - t) * (1 - t)
+}
+
+/**
+ * ...and how freely he's scoring, which is a different and much faster curve.
+ *
+ * A batter will nudge a single off his third ball long before he's happy
+ * driving, and tying the two together is what produced a 22% duck rate: hold
+ * scoring down for as long as you hold safety down and a new man sits on nought
+ * for twenty balls, which is twenty chances to be dismissed for nought.
+ */
+const SCORING_AT_BALLS = 12
+const scoringConfidence = (balls: number) => Math.sqrt(clamp(balls / SCORING_AT_BALLS, 0, 1))
+
+/**
+ * Nobody stays at their sharpest forever.
+ *
+ * Without this the curve only ever runs one way, so a batter who got in stayed
+ * twice as hard to dismiss for the rest of the afternoon and the innings came
+ * out polarised: a fat bulge of single figures and a handful of ninety-odds,
+ * with almost nothing in the twenties and thirties where club cricket actually
+ * lives. Getting out having got in is the most familiar dismissal there is.
+ */
+const LAPSE_PER_BALL = 0.007
+
+const lerp = (from: number, to: number, t: number) => from + (to - from) * t
 
 /**
  * What it costs to face the new ball without being an opener.
@@ -140,6 +210,16 @@ const SET_WICKET = { pace: -0.06, spin: 0.20 } as const
  * you planned it that way or not, which is exactly what happens on a Saturday.
  */
 const NON_OPENER_RISK = 0.35
+
+/**
+ * ...and what a specialist is worth doing it.
+ *
+ * Being an opener has to be a positive, not merely the absence of a penalty.
+ * Without this the top of the order was strictly the worst place to bat — a
+ * number five outscored an opener by three runs, which is the wrong way round
+ * in every real scorebook, because openers face by far the most deliveries.
+ */
+const OPENER_EDGE = 0.34
 
 /** How new the ball still is, 1 at the start and 0 once the shine has gone. */
 const newBallShine = (over: number) => clamp(1 - (over - 1) / SWING_WINDOW, 0, 1)
@@ -182,6 +262,68 @@ export function intentEffect(push: number, skill: number, pwr: number) {
 }
 
 /**
+ * What a field setting is worth to the man bowling to it.
+ *
+ * The bowling side's half of the intent decision, and it works the same way:
+ * the setting is how many men are up, not how many wickets you get, and turning
+ * that into wickets takes ATT while surviving the gaps it leaves takes DEF.
+ *
+ *   ATTACK  behind an 88-ATT strike bowler ~ +58% wickets for +36% boundaries
+ *   ATTACK  behind a 45-ATT part-timer     ~ +33% wickets for the same +36%
+ *   SPREAD  behind an 83-DEF stock bowler  ~ cuts boundaries by about a third
+ *   SPREAD  behind a 40-DEF trundler       ~ cuts them by a sixth; he'll be hit anyway
+ *
+ * Singles are the honest cost on both sides. A ring field is the tightest thing
+ * there is; bring the catchers in *or* push the sweepers back and they milk you
+ * for ones, which is why CONTAIN is the baseline rather than SPREAD.
+ */
+/** What men round the bat buy, before the bowler's penetration is priced in. */
+const ATTACK_FIELD = 0.31
+/** ...and what they cost, which is the same whoever is bowling. */
+const FIELD_GAPS = 0.34
+/** What pushing everyone back saves, before his discipline is priced in. */
+const SPREAD_SAVING = 0.44
+/** ...and what it costs in wickets, which is again the same for everyone. */
+const SPREAD_TOOTHLESS = 0.55
+/** How much any field other than a ring leaks in ones. */
+const SINGLE_LEAK = 0.13
+
+/**
+ * ...and it depends just as much on *who is in*.
+ *
+ * Men round the bat are a bargain against someone who has just walked out and
+ * an expensive indulgence against someone who is set — he'll simply hit through
+ * the gaps you've left. Pushing everyone back is the other way round: pointless
+ * against a new batter who isn't going to clear the ring anyway, and the right
+ * call once somebody is away.
+ *
+ * Without this, attacking was flatly the best field at every moment of every
+ * innings, which is no decision at all. It's also why the attack screen shows
+ * you how set the two men are before it asks.
+ */
+const NEW_MAN_BONUS = 0.45
+const SET_MAN_COST = 0.50
+
+export function fieldEffect(push: number, def: number, att: number, settled = 0.5) {
+  const d = push - 1
+  // 1 against a new batter, 0 against a set one.
+  const fresh = clamp(1 - settled, 0, 1)
+  return {
+    // Catchers only pay for a bowler who finds the edge — and only against
+    // somebody who might edge it.
+    wicket: d > 0
+      ? 1 + d * ATTACK_FIELD * EDGE(att) * (1 - NEW_MAN_BONUS + NEW_MAN_BONUS * 2 * fresh)
+      : 1 + d * SPREAD_TOOTHLESS,
+    // ...and the gaps they leave cost most against a man who can find them.
+    boundary: d > 0
+      ? 1 + d * FIELD_GAPS * (1 - SET_MAN_COST + SET_MAN_COST * 2 * settled)
+      : 1 + d * SPREAD_SAVING * EDGE(def) * (0.6 + 0.8 * settled),
+    // Tightest in the ring, leakier the further either way you go.
+    single: clamp(1 + Math.abs(push - RING_PUSH) * SINGLE_LEAK, 1, 1.22),
+  }
+}
+
+/**
  * Relative frequency of each way of getting out, by bowler type.
  *
  * Seamers bowl people and trap them in front; spinners get catches in the ring
@@ -209,17 +351,7 @@ const TEAM_MILESTONES = [50, 100, 150, 200, 250, 300, 350, 400]
 export const formatOvers = (balls: number) =>
   `${Math.floor(balls / RULES.ballsPerOver)}.${balls % RULES.ballsPerOver}`
 
-type PhaseName = 'powerplay' | 'middle' | 'death'
-
-function phaseNameFor(over: number): PhaseName {
-  if (over <= RULES.powerplayUntil) return 'powerplay'
-  if (over >= RULES.deathFrom) return 'death'
-  return 'middle'
-}
-
-function phaseFor(over: number) {
-  return PHASE[phaseNameFor(over)]
-}
+const phaseFor = (over: number) => PHASE[phaseOf(over)]
 
 // ---------------------------------------------------------------- the innings
 
@@ -227,8 +359,14 @@ export function simulateInnings(input: InningsInput): InningsResult {
   const { battingOrder, fieldingXI, rota, target, rng, forms } = input
   const chasing = target !== null
   const intents = input.intents ?? []
+  const fields = input.fields ?? []
 
-  const batters: BatterState[] = battingOrder.map((p) => makeBatterState(p, rng, forms?.[p.id]))
+  /** One private stream per player, so nobody's form depends on anyone else's. */
+  const formRng = (p: Player) => makeRng((hashString(p.id) ^ input.stateSeed) >>> 0)
+
+  const batters: BatterState[] = battingOrder.map(
+    (p) => makeBatterState(p, formRng(p), forms?.[p.id]),
+  )
   const cards: BatterCard[] = battingOrder.map((p, i) => ({
     playerId: p.id, name: p.name, runs: 0, balls: 0, fours: 0, sixes: 0,
     out: null, batted: i < 2,
@@ -239,7 +377,7 @@ export function simulateInnings(input: InningsInput): InningsResult {
   for (const id of new Set(rota)) {
     const p = fieldingXI.find((x) => x.id === id)
     if (!p) continue
-    bowlerStates.set(id, makeBowlerState(p, rng, forms?.[p.id]))
+    bowlerStates.set(id, makeBowlerState(p, formRng(p), forms?.[p.id]))
     bowlerCards.set(id, {
       playerId: id, name: p.name, balls: 0, maidens: 0,
       runs: 0, wickets: 0, wides: 0, noBalls: 0, dots: 0,
@@ -284,7 +422,7 @@ export function simulateInnings(input: InningsInput): InningsResult {
     // What this bowler is for: a seamer's new ball and death, a spinner's
     // middle-over squeeze. Same ratings, different innings.
     const kind = bowler.player.bowlType === 'spin' ? 'spin' : 'pace'
-    const type = TYPE[kind][phaseNameFor(over)]
+    const type = TYPE[kind][phaseOf(over)]
     // The new ball is worth something for a dozen overs, and only to a bowler
     // who can actually use it.
     const swing = swingBoost(bowler.player.swing, over)
@@ -292,6 +430,12 @@ export function simulateInnings(input: InningsInput): InningsResult {
     const effDef = bowler.def * swing.def
     // How much of the new ball is left, for the non-opener penalty below.
     const shine = newBallShine(over)
+
+    // Where the fielders are. Set per block like the batting orders, and read
+    // off the score for any block nobody has called — so the opposition and the
+    // auto manager captain themselves rather than standing in one shape all day.
+    const setting = fields[blockOf(over)] ?? autoField(blockOf(over), runs, wickets)
+    const fieldPushed = fieldPush(setting)
     let ballsThisOver = 0
     let runsThisOver = 0
     let wktsThisOver = 0
@@ -354,27 +498,36 @@ export function simulateInnings(input: InningsInput): InningsResult {
       const wicketFactor = duel(effAtt, batter.sk, WICKET_DAMPING)
       const runsFactor = duel(batter.pw, effDef, RUNS_DAMPING)
 
-      // A new batter plays himself in.
-      const faced = card.balls
-      const settleRuns = faced >= 6 ? 1 : 0.55 + (faced / 6) * 0.45
-      const settleWicket = faced >= 6 ? 1 : 1.40 - (faced / 6) * 0.40
+      // Getting in. Twice as dangerous on the first ball as at the baseline,
+      // a little over half as dangerous once he's properly in — and most of
+      // that is won inside the first dozen balls.
+      const conf = confidence(card.balls)
+      const lapse = 1 + LAPSE_PER_BALL * Math.max(0, card.balls - SET_AT_BALLS)
+      const settleWicket = lerp(NEW_RISK, SET_RISK, conf) * lapse
 
-      // ...and once he's in, he's the seamer's problem and the spinner's wicket.
-      const setBy = clamp(faced / SET_AT_BALLS, 0, 1)
-      const setWicket = 1 + SET_WICKET[kind] * setBy
+      // The field is priced against the man actually facing it.
+      const field = fieldEffect(
+        fieldPushed, bowler.player.bowl.def, bowler.player.bowl.att, conf,
+      )
+      const settleRuns = lerp(NEW_SCORING, SET_SCORING, scoringConfidence(card.balls))
 
       // Facing the new ball is a specialist's job. Anyone else is out of his
       // depth until it stops doing anything.
-      const newBall = batter.player.opener ? 1 : 1 + NON_OPENER_RISK * shine
+      const newBall = batter.player.opener
+        ? 1 - OPENER_EDGE * shine
+        : 1 + NON_OPENER_RISK * shine
 
       let pWicket =
-        BASE.wicket * wicketFactor * phase.wicket * type.wicket * aggWicket * settleWicket
-        * setWicket * newBall
-      let pFour = BASE.four * runsFactor * phase.boundary * type.boundary * aggBoundary * settleRuns
+        BASE.wicket * wicketFactor * phase.wicket * type.wicket * field.wicket
+        * aggWicket * settleWicket * newBall
+      let pFour =
+        BASE.four * runsFactor * phase.boundary * type.boundary * field.boundary
+        * aggBoundary * settleRuns
       let pSix =
-        BASE.six * Math.pow(runsFactor, 1.15) * phase.boundary * type.boundary * aggBoundary * settleRuns
+        BASE.six * Math.pow(runsFactor, 1.15) * phase.boundary * type.boundary * field.boundary
+        * aggBoundary * settleRuns
       const rot = Math.pow(runsFactor, 0.25)
-      let pOne = BASE.one * rot * phase.single * aggSingle
+      let pOne = BASE.one * rot * phase.single * field.single * aggSingle
       let pTwo = BASE.two * rot * aggSingle
       let pThree = BASE.three * rot
 
@@ -525,6 +678,7 @@ export function simulateInnings(input: InningsInput): InningsResult {
         runs: cards[i].runs,
         balls: cards[i].balls,
         onStrike: i === striker,
+        settled: confidence(cards[i].balls),
       }))
 
     overSummaries.push({

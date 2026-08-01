@@ -85,8 +85,13 @@ const DIVISION: Seed[] = [
  * five highest bowling indexes. A balanced attack with two new-ball bowlers and
  * a spinner is worth about half a league place over five seamers, and the
  * suggested side is what most seasons are played with.
+ *
+ * Back to +12 when batting confidence arrived. Getting in is worth far more to
+ * a good player than a bad one — he converts the start into forty rather than
+ * nicking off on twelve — so a deep batting side compounds, and every club in
+ * the division needed lifting to keep the table honest.
  */
-const DIVISION_BASELINE = 15
+const DIVISION_BASELINE = 12
 
 // ------------------------------------------------------------------ XI shape
 //

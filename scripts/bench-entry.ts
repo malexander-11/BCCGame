@@ -1,11 +1,17 @@
 // Bundle entry for the bench harness — re-exports everything scripts/bench.mjs needs.
 export { BAGSHOT_SQUAD } from '../src/data/squad'
 export { OPPOSITION, OPPOSITION_BY_TIER } from '../src/data/opposition'
-export { RULES, DEFAULT_AVAILABILITY, allocatedOvers, windowOf, WINDOWS, windowSize, windowCap, intentPush, INTENTS, blockOf, BREAK_OVERS } from '../src/data/types'
+export {
+  RULES, DEFAULT_AVAILABILITY, blockOvers, BLOCK_CAP, BLOCK_COUNT, BLOCK_OVERS, blockOf,
+  blockRange, BREAK_OVERS, phaseOf, intentPush, INTENTS, fieldPush, FIELDS, settledLabel,
+} from '../src/data/types'
 export { simulateMatch, simulateFieldingInnings, simulateBattingInnings, buildMatchResult } from '../src/engine/match'
-export { autoPlan, buildRota, validatePlan } from '../src/engine/rota'
-export { autoBattingOrder, autoSelectXI, teamStrength, autoIntent, autoIntents } from '../src/engine/ai'
-export { simulateInnings, formatOvers, intentEffect } from '../src/engine/innings'
+export { buildRota, buildBlockRota, blockRng, blockSize, oversBowled, oversLeft, validateBlock } from '../src/engine/rota'
+export {
+  autoBattingOrder, autoSelectXI, teamStrength, autoIntent, autoIntents, autoBlock,
+  autoField, emptyPlan,
+} from '../src/engine/ai'
+export { simulateInnings, formatOvers, intentEffect, fieldEffect, confidence } from '../src/engine/innings'
 export { makeRng } from '../src/engine/rng'
 export { DIV6_WEST, BAGSHOT_REAL_POSITION } from '../src/data/league'
 export {

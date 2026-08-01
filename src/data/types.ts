@@ -63,8 +63,6 @@ export interface Club {
   xi: Player[]
 }
 
-// ---------------------------------------------------------------- bowling plan
-
 // ------------------------------------------------------------- chase orders
 
 /**
@@ -99,6 +97,43 @@ export const INTENTS: { id: Intent; label: string; blurb: string; push: number }
 
 export const intentPush = (i: Intent) => INTENTS.find((x) => x.id === i)!.push
 
+/**
+ * Where you put the fielders, set for one nine-over block at a time — the
+ * bowling side's half of the same decision.
+ *
+ * The ladder is how many men are up. Bring them in and you buy chances at the
+ * cost of the gaps behind them; push them back and you save the boundary but
+ * concede the single and never get him out. Like intent, what the setting is
+ * worth depends on who's bowling: men round the bat only pay off for someone who
+ * finds the edge, and a spread field only pays for someone disciplined enough to
+ * bowl to it. `fieldEffect` in the engine is where that happens.
+ */
+export type Field = 'spread' | 'contain' | 'press' | 'attack'
+
+export const FIELDS: { id: Field; label: string; blurb: string; push: number }[] = [
+  {
+    id: 'spread', label: 'SPREAD', push: 0.66,
+    blurb: 'Sweepers out, everyone back. Save the four, take the single.',
+  },
+  {
+    id: 'contain', label: 'CONTAIN', push: 0.90,
+    blurb: 'Ring field. Cut off the ones and make them find a gap.',
+  },
+  {
+    id: 'press', label: 'PRESS', push: 1.24,
+    blurb: 'A catcher or two in. Build pressure and wait for the mistake.',
+  },
+  {
+    id: 'attack', label: 'ATTACK', push: 1.66,
+    blurb: 'Slips and men round the bat. Buy a wicket and hang the runs.',
+  },
+]
+
+export const fieldPush = (f: Field) => FIELDS.find((x) => x.id === f)!.push
+
+/** The tightest setting — singles are cheapest here and dearer either side. */
+export const RING_PUSH = fieldPush('contain')
+
 /** Overs per block of the innings — 45 overs is exactly five nine-over blocks. */
 export const BLOCK_OVERS = 9
 export const BLOCK_COUNT = 5
@@ -110,34 +145,51 @@ export const blockOf = (over: number) =>
 /** The over you'd break after, for each block but the last: 9, 18, 27, 36. */
 export const BREAK_OVERS = Array.from({ length: BLOCK_COUNT - 1 }, (_, i) => (i + 1) * BLOCK_OVERS)
 
-export type Window = 'newBall' | 'middle' | 'death'
+// ---------------------------------------------------------------- the attack
 
 /**
- * How many overs a bowler bowls in each third of the innings.
+ * How the bowling is decided: **one nine-over block at a time**, the same
+ * rhythm the batting instructions run on.
  *
- * This has been through two wrong answers. First it was a *preference* — hold
- * him for the new ball — which the rota could only treat as a suggestion, so a
- * bowler with nine overs marked "new ball" had to bowl most of them elsewhere
- * and nothing said so. Then it was explicit spells ("six from over one"), which
- * was honest but made the screen twelve phone-screens long and demanded mental
- * arithmetic to read.
+ * This has been through three wrong answers, all of them versions of asking for
+ * the whole innings up front. First a *preference* — hold him for the new ball —
+ * which the rota could only treat as a hint, so a bowler marked for nine new-ball
+ * overs bowled most of them elsewhere and nothing said so. Then explicit spells
+ * ("six from over one"), honest but twelve phone-screens long. Then a count per
+ * third of the innings, which was readable but still asked you to plan
+ * forty-five overs before a ball had been bowled.
  *
- * A count per window is both. It's a quantity, not a wish, so the rota can
- * satisfy it exactly and the old silent leak cannot come back. And it's three
- * numbers you can read at a glance.
+ * No captain does that. He gives the new ball to two men, watches, and decides
+ * the next spell from what he's just seen. So the plan is now five decisions of
+ * nine overs each, made with the score in front of you — and the first one is
+ * the only thing you set before the toss.
  */
-export interface BowlerAllocation {
+export interface BlockAllocation {
   playerId: string
-  overs: Record<Window, number>
+  /** Overs in this block. At most `BLOCK_CAP` — he can't bowl two in a row. */
+  overs: number
 }
 
-export const NO_OVERS: Record<Window, number> = { newBall: 0, middle: 0, death: 0 }
+/** One block's worth of bowling: who bowls how many of the next nine. */
+export type BlockPlan = BlockAllocation[]
 
-/** Total overs across all three windows. */
-export const allocatedOvers = (a: BowlerAllocation) =>
-  a.overs.newBall + a.overs.middle + a.overs.death
+/**
+ * The whole innings, one entry per block. `null` means nobody has called it —
+ * the engine reads the situation and picks for itself, which covers the
+ * opposition, the auto manager, and every block ahead of wherever you've got to.
+ */
+export type BowlingPlan = (BlockPlan | null)[]
 
-export type BowlingPlan = BowlerAllocation[]
+/** Total overs handed out in a block. */
+export const blockOvers = (b: BlockPlan) => b.reduce((s, a) => s + a.overs, 0)
+
+/**
+ * Most overs one bowler can take out of a nine-over block.
+ *
+ * He can't bowl two in a row, so at best he has every other one — five of the
+ * nine, not nine.
+ */
+export const BLOCK_CAP = Math.ceil(BLOCK_OVERS / 2)
 
 /** One entry per over: which bowler bowls it. Index 0 == over 1. */
 export type Rota = string[]
@@ -212,6 +264,21 @@ export interface CreaseBatter {
   balls: number
   /** He faced the last ball of the over — so he'll be off strike for the next. */
   onStrike: boolean
+  /**
+   * How settled he is, 0 walking out to 1 fully in. The single most useful thing
+   * to know before deciding a field: a new man is there to be had, a set one
+   * isn't, and the same attacking field is a good idea against one and a bad
+   * idea against the other.
+   */
+  settled: number
+}
+
+/** What to call a batter at that level of settledness. */
+export function settledLabel(settled: number): string {
+  if (settled < 0.22) return 'NEW IN'
+  if (settled < 0.55) return 'PLAYING IN'
+  if (settled < 0.85) return 'GETTING GOING'
+  return 'SET'
 }
 
 export interface OverSummary {
@@ -295,35 +362,27 @@ export const RULES = {
   deathFrom: 36,
 } as const
 
-// ------------------------------------------------------- the bowling windows
+// ------------------------------------------------------------- the phases
 //
-// Declared after RULES because they're derived from it.
+// Declared after RULES because they're derived from it. These describe what the
+// *ball* is doing at a given point of the innings — they are not a unit of
+// planning, which is the nine-over block.
 
-/** First and last over of each third of the innings. */
-export const WINDOWS: { key: Window; label: string; from: number; to: number }[] = [
-  { key: 'newBall', label: 'NEW BALL', from: 1, to: RULES.powerplayUntil },
-  { key: 'middle', label: 'MIDDLE', from: RULES.powerplayUntil + 1, to: RULES.deathFrom - 1 },
-  { key: 'death', label: 'DEATH', from: RULES.deathFrom, to: RULES.overs },
-]
+export type Phase = 'powerplay' | 'middle' | 'death'
 
-/** How many overs a window holds — 9, 26 and 10. */
-export const windowSize = (w: Window) => {
-  const win = WINDOWS.find((x) => x.key === w)!
-  return win.to - win.from + 1
-}
-
-/**
- * Most overs one bowler can take out of a window.
- *
- * He can't bowl two in a row, so at best he has every other one — five of the
- * nine powerplay overs, not nine. Still capped by his overall allowance.
- */
-export const windowCap = (w: Window) =>
-  Math.min(Math.ceil(windowSize(w) / 2), RULES.maxOversPerBowler)
-
-/** Which window an over falls in. */
-export function windowOf(over: number): Window {
-  if (over <= RULES.powerplayUntil) return 'newBall'
+export function phaseOf(over: number): Phase {
+  if (over <= RULES.powerplayUntil) return 'powerplay'
   if (over >= RULES.deathFrom) return 'death'
   return 'middle'
 }
+
+/** What each block is for, in a word. Shown as the heading on the attack screen. */
+export const BLOCK_LABELS = [
+  'THE NEW BALL', 'THE FIRST CHANGE', 'THE MIDDLE OVERS', 'THE SQUEEZE', 'THE DEATH',
+] as const
+
+/** First and last over of a block: block 0 is overs 1-9, block 4 is 37-45. */
+export const blockRange = (block: number) => ({
+  from: block * BLOCK_OVERS + 1,
+  to: Math.min(RULES.overs, (block + 1) * BLOCK_OVERS),
+})

@@ -3,8 +3,9 @@
 A browser cricket game for Bagshot Cricket Club, in the spirit of
 [500-0.com](https://500-0.com/) but as a real match rather than a chase.
 
-You win the toss and bowl. Pick eleven from the squad, decide who bowls which
-45 overs, watch the opposition bat — and then chase whatever they leave you.
+You win the toss and bowl. Pick eleven from the squad, give somebody the new
+ball, and captain the innings nine overs at a time — then chase whatever they
+leave you.
 
 - **Season mode.** Nine fixtures in **Surrey Cricket Championship Division 6
   West**, against the clubs Bagshot actually play. Full league table, bonus
@@ -60,9 +61,8 @@ Every player carries four numbers, all 0-100, all centred so that
 A fifth, optional rating sits on top: **`SWING`**, what a bowler does with a new
 ball. It lifts ATT sharply and DEF a little for the first twelve overs and then
 fades to nothing, so a swing bowler held back to first change has wasted his
-best asset. Archie Graham, Derek Budd and Jack Brown have it. Giving the new ball
-to two stock seamers instead of your swing pair costs roughly **13 runs an
-innings**.
+best asset. Archie Graham, Derek Budd and Jack Brown have it, and so do a couple
+of bowlers at every club you play.
 
 And a flag rather than a rating: **`OPENER`**, meaning he can see off the new
 ball. Whoever is facing in the first dozen overs *without* it carries about a
@@ -105,22 +105,69 @@ literally identical innings — and now it decides when he's worth having:
 
 | per over | powerplay | middle | death |
 |---|---|---|---|
-| **pace** | 4.06 econ · 0.19 wkts | 4.45 · 0.11 | 4.88 · 0.27 |
-| **spin** | 4.75 econ · 0.14 wkts | **4.11 · 0.17** | 5.93 · 0.20 |
+| **pace** | 5.51 econ · 0.13 wkts | 4.16 · 0.11 | 3.81 · 0.28 |
+| **spin** | 6.58 econ · 0.08 wkts | **3.75 · 0.15** | 4.47 · 0.18 |
 
 A seamer owns the new ball and the death and leaks through the middle once the
 shine has gone. A spinner is the opposite: carted at either end, but through the
-middle he's both cheaper *and* takes half again as many wickets — and he's the
-one who removes a **set** batter, because that's the man trying to hit over the
-top. Across a whole innings the two are within a couple of runs of each other,
-so this is about when you bowl someone, not who's better.
+middle he's both cheaper *and* takes half again as many wickets. Across a whole
+innings the two are within a couple of runs of each other, so this is about when
+you bowl someone, not who's better.
 
-Together with swing, that's what makes the bowling plan a decision. A good
-deployment — swing on the new ball, spin squeezing the middle, your strike
-bowlers at the death — is worth about **14 runs** against filling the boxes
-best-bowler-first, and a single call like opening with the spinner costs **18**.
-It used to be two and a half runs for the whole screen, which is why the plan
-screen was rebuilt twice before anyone noticed the problem wasn't the interface.
+Together with swing, that's what makes the bowling a decision. A good deployment
+— swing on the new ball, spin squeezing the middle, your strike bowlers at the
+death — is worth about **20 runs** against working down the list by bowling
+average. It used to be two and a half runs for the whole screen, which is why
+the attack screen was rebuilt twice before anyone noticed the problem wasn't the
+interface.
+
+### Getting in
+
+The other thing that decides an innings is how long you've been there. A batter
+is at his most vulnerable on arrival and roughly **half as easy to dismiss once
+he's in** — and most of that is won early:
+
+| balls faced | 0 | 3 | 6 | 12 | 18 | 26+ |
+|---|---|---|---|---|---|---|
+| **settled** | 0.00 | 0.22 | 0.41 | 0.71 | 0.91 | 1.00 |
+
+Scoring comes back on a separate and much faster curve — he'll nudge a single
+off his third ball long before he's happy driving. Tying the two together
+produced a 22% duck rate, because a new man sat on nought for twenty balls,
+which is twenty chances to be dismissed for nought.
+
+Past that, concentration lapses: risk creeps back about 0.7% a ball once he's
+set. Getting out having got in is the most familiar dismissal there is, and
+without it the innings came out polarised — a bulge of single figures and a
+handful of ninety-odds, with nothing in the twenties and thirties where club
+cricket actually lives.
+
+This is what makes the **field** a decision rather than a dial, and why the
+attack screen shows you how set the two men are before it asks.
+
+### The field
+
+Where the fielders go, set for one nine-over block at a time — the bowling
+side's half of the intent decision. The ladder is how many men are up:
+**SPREAD · CONTAIN · PRESS · ATTACK**. Bring them in and you buy chances at the
+cost of the gaps behind them; push them back and you save the boundary but
+concede the single and never get him out. A ring field is the tightest thing
+there is, which is what stops SPREAD being a strictly better CONTAIN.
+
+It works the same way intent does — the setting is how many men are up, not how
+many wickets you get, and turning that into wickets takes ATT while surviving
+the gaps takes DEF:
+
+| told to ATTACK | wickets | boundaries |
+|---|---|---|
+| an 88-ATT strike bowler | **+44%** | +22% |
+| a 45-ATT part-timer | +21% | +22% |
+
+And it depends just as much on who's in. Men round the bat are a bargain
+against someone who has just walked out and an indulgence against someone set —
+he'll simply hit through the gaps you've left. Without that, attacking was
+flatly the best field at every moment of every innings, which is no decision at
+all.
 
 Rough guide for a Surrey Championship side:
 
@@ -197,20 +244,23 @@ Anyone since dropped from the squad or unavailable simply isn't there.
    `AUTO` picks a legal side that also has a **shape**: a keeper, two new-ball
    bowlers, a spinner, five bowlers all told, and two openers. Ranking on raw
    bowling index instead — which is what it used to do — hands you five seamers
-   and no spinner, and half the bowling plan stops existing.
-2. **The attack** — say how many overs each bowler gets in each third of the
-   innings: **new ball, middle, death**. Three numbers per man. Each window has
-   to come out exact — 9, 26 and 10 — so the panel at the top turns green only
-   when the plan actually adds up, and the counts are honoured to the over.
-   Your frontline sits above the part-timers, sorted by what they're here for,
-   unused bowlers collapse to a line, and a preview strip shows the
-   **over-by-over rota you'll actually get** — seeded from the match itself, so
-   it isn't an estimate. Bowlers work in tandem from either end, so they bowl
-   proper spells rather than one over each in rotation.
-3. **Fielding innings** — they bat. The scoreboard carries the two men at the
-   crease with their runs and balls, and the feed runs a scorebook strip for
-   every over (`. 1 4 . W 2`), so every single ball is visible. Pause, run it at
-   4×, or skip it entirely.
+   and no spinner, and half the bowling stops mattering.
+2. **The new ball** — who bowls the first nine overs, and where the fielders
+   stand for them. Nine overs, not forty-five: no captain plans a whole innings
+   before a ball is bowled, he gives the new ball to two men and decides the
+   next spell from what he's just watched. The block has to come out exact, so
+   the counter turns gold only when it adds up, and the counts are honoured to
+   the over. A preview strip shows the **over-by-over rota you'll actually
+   get** — seeded from the match itself, so it isn't an estimate. Bowlers work
+   in tandem from either end, so they bowl proper spells rather than one over
+   each in rotation.
+3. **Fielding innings** — they bat, and it **stops every nine overs** so you can
+   pick the next spell. Each break shows the score, who's in and **how set they
+   are**, what every bowler has left, and who bowled the last over (he can't
+   open the next block). The same screen four more times: first change, middle
+   overs, the squeeze, the death. The scoreboard carries the two men at the
+   crease, and the feed runs a scorebook strip for every over (`. 1 4 . W 2`),
+   so every single ball is visible. Pause, run it at 4×, or skip it entirely.
 4. **Interval** — your order shown back with the target now known, and how the
    openers play the first nine overs.
 5. **The chase** — you bat, and the innings **stops for drinks every nine
@@ -225,8 +275,9 @@ Anyone since dropped from the squad or unavailable simply isn't there.
 
 The phone's back gesture steps back through the app rather than leaving it.
 Once an innings has been bowled there's deliberately no route back into
-selection or the plan — re-planning after seeing the total would be bowling it
-twice — so back during a sim skips to the end of that innings instead.
+selection — re-picking after seeing the total would be bowling it twice — and
+none out of a break, because the overs behind it have already been bowled. Back
+during a sim skips to the end of that innings instead.
 
 ---
 
@@ -404,11 +455,11 @@ roughly a third turn up with nothing, one in six is unplayable that day.
 looks like 45-over club cricket rather than a video game. Current numbers:
 
 ```
-median first innings   171        run rate            3.97
-10th / 90th pct        110 / 212  wickets lost        7.96
-all-out rate           45.4%      extras             11.3
-ducks per innings      1.23       fifties per innings 0.73
-mean top score         55.9       hundreds/innings    0.05
+median first innings   172        run rate            3.98
+10th / 90th pct        100 / 209  wickets lost        7.65
+all-out rate           46.4%      extras             11.6
+ducks per innings      1.44       fifties per innings 0.81
+median batter score      7        50+ per batting card 11%
 ```
 
 These are measured **par club against par club**, never against Bagshot — so
@@ -436,17 +487,26 @@ lands in the intended difficulty band.
 Five of them keep the *display* honest rather than the simulation: the
 scorebook strip must reconcile with its own over, the crease snapshot can never
 show a batter already out, the rota preview must name the bowler who really
-bowls, **window counts are honoured exactly, 100% of the time**, and **bowlers
-bowl in spells** — averaging seven-and-a-half unbroken overs from one end
-rather than being rotated one over at a time.
+bowls, **block counts are honoured exactly, 100% of the time**, and **bowlers
+bowl in spells** — averaging several unbroken overs from one end rather than
+being rotated one over at a time.
 
 Those last two are scar tissue. The first model asked for a *preference*, which
 the rota treated as a hint, so 16% of overs were bowled outside the window you
 picked and nothing said so. The fix for that was explicit spells, which was
 honest but made the screen twelve phone-screens long — and, because the rota
 underneath was rotating five bowlers an over at a time, rendered as thirty
-one-over "spells". Counts per window are both honest and three numbers you can
-read at a glance; the tandem rule is what makes them describe real spells.
+one-over "spells". Then counts per third of the innings, readable but still
+asking you to plan forty-five overs blind. Nine overs at a time is the answer to
+all three; the tandem rule is what makes them describe real spells.
+
+The live version needs one more guarantee, and it's the one the whole design
+rests on: **deciding block three cannot re-bowl blocks one and two**. Each
+block's rota is dealt from its own seeded stream for exactly that reason, and
+every player's form roll comes from a private stream too — drawing them from the
+ball sequence meant bringing on a sixth bowler at the twenty-seventh over
+shifted every delivery back to the first, silently rewriting overs you had
+already watched.
 
 Batting intent has its own two. One asserts the trade is **player-dependent** —
 a striker's exchange rate of runs for risk has to be several times better than a
@@ -460,23 +520,41 @@ overs you had already watched quietly changed underneath you.
 Three of them keep the display honest rather than the simulation: the scorebook
 strip has to reconcile with its own over — six legal balls, wickets and runs
 matching the summary — the crease snapshot can never show a batter who is
-already out, and the rota preview on the plan screen has to name the bowler who
+already out, and the rota preview on the attack screen has to name the bowler who
 really bowls each over. A preview that lied would be worse than no preview.
 
-Newest are the ones that would have caught the attack screen being decorative:
-**deployment has to be worth having** — a good plan against a thoughtless one,
-same five bowlers, only the windows differing — and **pace and spin have to stay
-level** across a whole innings, so widening the phase table can never quietly
-make one type flatly better and collapse the plan into "pick the good bowlers".
-Nothing in the suite noticed the first problem, which is how it survived two
-rebuilds of the screen. Alongside them, six checks on the shape of the suggested
-XI, and two on openers: pushing a non-opener up has to cost runs, and marking the
-*tail* as openers has to change nothing at all — otherwise the penalty has become
-a flat tax on not being an opener rather than a new ball a specialist sees off.
+Then the ones that would have caught the attack screen being decorative:
+**deployment has to be worth having** — a good plan against working down the
+list, same five bowlers, only the timing differing — and **pace and spin have to
+stay level** across a whole innings, so widening the phase table can never
+quietly make one type flatly better and collapse the plan into "pick the good
+bowlers". Nothing in the suite noticed the first problem, which is how it
+survived two rebuilds of the screen. Alongside them, six checks on the shape of
+the suggested XI, and two on openers: pushing a non-opener up has to cost runs,
+and marking the *tail* as openers has to change nothing at all — otherwise the
+penalty has become a flat tax on not being an opener rather than a new ball a
+specialist sees off.
 
-All 77 checks pass.
+The field has its own five, in the same shape as intent: it has to be worth real
+runs, **no setting can run away with it**, a ring field has to be the tightest,
+and attacking has to pay a strike bowler substantially more than a part-timer.
 
-The mirror-match check plays a side against itself: the chasing side wins 55.5%,
+And six on the shape of a batting innings. These are the ones where it's easiest
+to fool yourself, because the aggregate totals can be perfect while every
+individual score is wrong. The first version of this block had *professional*
+numbers in it — a median of twelve, one duck in ten dismissals. Work it out from
+a real card instead: a side bowled out for 175 has ten dismissed batters sharing
+about 160 off the bat, and club cards are heavily right-skewed. 45, 38, 22, 15,
+8, 6, 4, 3, 1, 0, 0 is an utterly ordinary Saturday, and its median is 6 with two
+ducks in ten. Chasing a median of twelve would have meant an engine nobody gets
+out in. What the checks actually hold is the *shape*: single figures common but
+not the whole innings, fifties an event, and — the one that was genuinely broken
+before confidence existed — **the top three outscoring the middle order**, which
+they have to, because openers face by far the most deliveries.
+
+All 99 checks pass.
+
+The mirror-match check plays a side against itself: the chasing side wins ~55%,
 in line with real limited-overs cricket, where knowing the target is worth
 something.
 

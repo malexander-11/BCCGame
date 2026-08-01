@@ -1,10 +1,10 @@
 import { RULES } from '../data/types'
 import type {
-  BowlingPlan, Club, InningsResult, Intent, MatchOutcome, MatchResult, Player,
+  BowlingPlan, Club, Field, InningsResult, Intent, MatchOutcome, MatchResult, Player,
 } from '../data/types'
-import { autoBattingOrder } from './ai'
+import { autoBattingOrder, autoBlock, emptyPlan } from './ai'
 import { formatOvers, simulateInnings } from './innings'
-import { autoPlan, buildRota } from './rota'
+import { buildRota } from './rota'
 import { makeRng } from './rng'
 
 /**
@@ -24,9 +24,17 @@ export const TEAM_NAME = 'Bagshot CC'
 const firstRng = (seed: number) => makeRng(seed)
 const secondRng = (seed: number) => makeRng((seed ^ 0x9e3779b9) >>> 0)
 
+/**
+ * Deal the whole rota, letting the auto captain fill any block nobody has
+ * called. It takes its own per-block RNG streams rather than the ball stream, so
+ * changing your mind at a break can never re-deal the overs already bowled.
+ */
+const rotaFor = (plan: BowlingPlan, xi: Player[], seed: number) =>
+  buildRota(plan, seed, (block, used, previous) => autoBlock(xi, block, used, previous))
+
 export function simulateFieldingInnings(
   opponent: Club, bagshotXI: Player[], plan: BowlingPlan, seed: number,
-  forms?: Record<string, number>,
+  forms?: Record<string, number>, fields?: (Field | null)[],
 ): InningsResult {
   const rng = firstRng(seed)
   return simulateInnings({
@@ -34,10 +42,14 @@ export function simulateFieldingInnings(
     fieldingTeamName: TEAM_NAME,
     battingOrder: autoBattingOrder(opponent.xi),
     fieldingXI: bagshotXI,
-    rota: buildRota(plan, rng),
+    rota: rotaFor(plan, bagshotXI, seed),
     target: null,
+    // Gaps are filled from the live score by the engine, so an unmanaged
+    // innings is captained rather than left in one shape all afternoon.
+    fields,
     forms,
     rng,
+    stateSeed: seed,
   })
 }
 
@@ -51,13 +63,13 @@ export function simulateBattingInnings(
     fieldingTeamName: opponent.name,
     battingOrder: bagshotOrder,
     fieldingXI: opponent.xi,
-    rota: buildRota(autoPlan(opponent.xi), rng),
+    // They captain themselves — bowlers and fields both.
+    rota: rotaFor(emptyPlan(), opponent.xi, (seed ^ 0x51ed270b) >>> 0),
     target,
-    // Gaps are filled from the live score by the engine, so an unmanaged chase
-    // reads the game rather than following a plan drawn up in advance.
     intents,
     forms,
     rng,
+    stateSeed: (seed ^ 0x9e3779b9) >>> 0,
   })
 }
 
@@ -171,8 +183,7 @@ function analyse(first: InningsResult, second: InningsResult, outcome: MatchOutc
 export function simulateMatch(
   opponent: Club, bagshotXI: Player[], seed: number, plan?: BowlingPlan, order?: Player[],
 ): MatchResult {
-  const usedPlan = plan ?? autoPlan(bagshotXI)
-  const first = simulateFieldingInnings(opponent, bagshotXI, usedPlan, seed)
+  const first = simulateFieldingInnings(opponent, bagshotXI, plan ?? emptyPlan(), seed)
   const second = simulateBattingInnings(
     opponent, order ?? autoBattingOrder(bagshotXI), first.runs + 1, seed,
   )

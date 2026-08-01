@@ -30,8 +30,11 @@ await build({
 const {
   BAGSHOT_SQUAD, OPPOSITION, RULES, DIV6_WEST, BAGSHOT_REAL_POSITION,
   simulateMatch, simulateFieldingInnings, simulateBattingInnings, buildMatchResult,
-  autoPlan, autoBattingOrder, autoSelectXI, buildRota, validatePlan, makeRng,
-  allocatedOvers, windowOf, windowSize, windowCap, intentEffect, intentPush, autoIntent,
+  autoBattingOrder, autoSelectXI, autoBlock, autoField, emptyPlan, makeRng,
+  buildRota, buildBlockRota, blockRng, blockSize, oversBowled, oversLeft, validateBlock,
+  blockOvers, BLOCK_CAP, BLOCK_COUNT, BLOCK_OVERS, blockOf, blockRange, phaseOf,
+  fieldEffect, fieldPush, FIELDS, confidence, settledLabel,
+  intentEffect, intentPush, autoIntent,
   createSeason, nextFixture, recordRound, standings, seasonComplete,
   dlsPar, resources, swingBoost, SWING_WINDOW,
   initialAvailability, rollRound, availablePlayers, unavailableMap, availabilityRate,
@@ -216,12 +219,14 @@ let runsMismatch = 0
 let stripMismatch = 0
 let creaseMismatch = 0
 
+/** A fully auto-captained rota — every block read off the state by `autoBlock`. */
+const autoRota = (xi, seed) =>
+  buildRota(emptyPlan(), seed, (block, used, previous) => autoBlock(xi, block, used, previous))
+
 for (let i = 0; i < 500; i++) {
   const opp = evenOpponents[i % evenOpponents.length]
-  const plan = autoPlan(BAGSHOT_XI)
-  if (validatePlan(plan, BAGSHOT_XI).length > 0) capViolations++
-
-  const rota = buildRota(plan, (() => { let s = i; return () => ((s = (s * 16807) % 2147483647) / 2147483647) })())
+  const rota = autoRota(BAGSHOT_XI, i * 31 + 5)
+  if (rota.length !== RULES.overs) capViolations++
   for (let o = 1; o < rota.length; o++) if (rota[o] === rota[o - 1]) rotaViolations++
   const counts = new Map()
   for (const id of rota) counts.set(id, (counts.get(id) ?? 0) + 1)
@@ -264,39 +269,33 @@ for (let i = 0; i < 500; i++) {
   }
 }
 
-// Lopsided allocations must not be able to produce an illegal rota.
+// Lopsided blocks must not be able to produce an illegal rota. Every block is
+// pushed right up against the ceiling, in every combination, with the join
+// across the block boundary having to hold each time.
 let splitViolations = 0
 let splitCap = 0
 for (let i = 0; i < 300; i++) {
   const bowlers = BAGSHOT_XI.filter((p) => p.bowl.def >= 20 && p.bowl.att >= 20 && !p.wk).slice(0, 5)
   if (bowlers.length < RULES.minBowlers) break
-  // Deliberately awkward: everyone crammed into the window they least suit,
-  // right up against the per-window ceiling.
-  const shapes = [
-    { newBall: 5, middle: 4, death: 0 },
-    { newBall: 0, middle: 4, death: 5 },
-    { newBall: 4, middle: 5, death: 0 },
-    { newBall: 0, middle: 9, death: 0 },
-    { newBall: 0, middle: 4, death: 5 },
-  ]
-  // Rotate the shapes so every bowler takes a turn in every role, then fix up
-  // the windows so each one comes out exact.
-  const plan = bowlers.map((p, n) => ({ playerId: p.id, overs: { ...shapes[(i + n) % shapes.length] } }))
-  for (const w of ['newBall', 'middle', 'death']) {
-    const want = w === 'newBall' ? RULES.powerplayUntil
-      : w === 'death' ? RULES.overs - RULES.deathFrom + 1
-        : RULES.deathFrom - 1 - RULES.powerplayUntil
-    let got = plan.reduce((s, a) => s + a.overs[w], 0)
-    const cap = Math.min(Math.ceil(want / 2), RULES.maxOversPerBowler)
-    for (const a of plan) {
-      while (got > want && a.overs[w] > 0) { a.overs[w]--; got-- }
-      while (got < want && a.overs[w] < cap
-             && allocatedOvers(a) < RULES.maxOversPerBowler) { a.overs[w]++; got++ }
+  const shapes = [[5, 4], [4, 5], [5, 3, 1], [3, 3, 3], [4, 4, 1]]
+  const plan = Array.from({ length: BLOCK_COUNT }, (_, b) => {
+    const shape = shapes[(i + b) % shapes.length]
+    // Rotate who gets which share, so every bowler takes a turn in every role.
+    return shape.map((overs, n) => ({ playerId: bowlers[(i + b + n) % bowlers.length].id, overs }))
+  })
+  // A shape that busts somebody's nine-over allowance simply isn't a legal
+  // plan; the point of this check is the rota, not the validator.
+  const total = new Map()
+  let illegal = false
+  for (const b of plan) {
+    for (const a of b) {
+      total.set(a.playerId, (total.get(a.playerId) ?? 0) + a.overs)
+      if (total.get(a.playerId) > RULES.maxOversPerBowler) illegal = true
+      if (a.overs > BLOCK_CAP) illegal = true
     }
   }
-  if (validatePlan(plan, BAGSHOT_XI).length > 0) continue
-  let s = i + 1
-  const rota = buildRota(plan, () => ((s = (s * 16807) % 2147483647) / 2147483647))
+  if (illegal) continue
+  const rota = buildRota(plan, i * 977 + 3, () => [])
   for (let o = 1; o < rota.length; o++) if (rota[o] === rota[o - 1]) splitViolations++
   const counts = new Map()
   for (const id of rota) counts.set(id, (counts.get(id) ?? 0) + 1)
@@ -306,19 +305,22 @@ for (let i = 0; i < 300; i++) {
 
 // The count you set is the count you get. The very first version of this screen
 // asked for a *preference*, which the rota treated as a hint — 16% of overs
-// were bowled outside the window you picked and nothing said so. This is the
+// were bowled outside the block you picked and nothing said so. This is the
 // check that stops that coming back.
 let countHonoured = 0, countTotal = 0
 for (let i = 0; i < 300; i++) {
-  const plan = autoPlan(BAGSHOT_XI)
-  if (validatePlan(plan, BAGSHOT_XI).length > 0) continue
-  const rota = buildRota(plan, makeRng(i * 7919 + 3))
-  for (const a of plan) {
-    for (const w of ['newBall', 'middle', 'death']) {
-      const got = rota.filter((id, n) => id === a.playerId && windowOf(n + 1) === w).length
+  const used = new Map()
+  let previous = null
+  for (let b = 0; b < BLOCK_COUNT; b++) {
+    const chosen = autoBlock(BAGSHOT_XI, b, used, previous)
+    if (validateBlock(b, chosen, BAGSHOT_XI, used, previous).length > 0) countTotal++   // counts as a miss
+    const part = buildBlockRota(b, chosen, previous, null, blockRng(i * 7919 + 3, b))
+    for (const a of chosen) {
       countTotal++
-      if (got === a.overs[w]) countHonoured++
+      if (part.filter((id) => id === a.playerId).length === a.overs) countHonoured++
     }
+    for (const id of part) used.set(id, (used.get(id) ?? 0) + 1)
+    previous = part[part.length - 1] ?? previous
   }
 }
 
@@ -329,11 +331,8 @@ for (let i = 0; i < 300; i++) {
 // It reads wrong, and it made the plan screen render thirty one-over spells.
 let runTotal = 0, runCount = 0
 for (let i = 0; i < 200; i++) {
-  const plan = autoPlan(BAGSHOT_XI)
-  if (validatePlan(plan, BAGSHOT_XI).length > 0) continue
-  const rota = buildRota(plan, makeRng(i * 104729 + 7))
-  const seen = new Set()
-  for (const id of rota) seen.add(id)
+  const rota = autoRota(BAGSHOT_XI, i * 104729 + 7)
+  const seen = new Set(rota)
   for (const id of seen) {
     const overs = rota.map((x, n) => (x === id ? n + 1 : 0)).filter(Boolean)
     let run = 1
@@ -345,20 +344,26 @@ for (let i = 0; i < 200; i++) {
   }
 }
 
-// The default plan must always add up — a version that quietly dropped overs it
-// couldn't place left the innings short and every batting number wrong.
+// The auto captain must always get through the innings. A version that quietly
+// dropped overs it couldn't place left the innings short and every batting
+// number wrong — and now that he's called five separate times, a block that
+// strands the last one is a live risk rather than a theoretical one.
 let autoShort = 0
 for (let i = 0; i < 50; i++) {
   const xiN = autoSelectXI(BAGSHOT_SQUAD.slice(0, 12 + (i % 15)))
-  const plan = autoPlan(xiN)
-  if (plan.reduce((s, a) => s + allocatedOvers(a), 0) !== RULES.overs) autoShort++
+  const rota = autoRota(xiN, i * 61 + 11)
+  if (rota.length !== RULES.overs) autoShort++
+  const counts = new Map()
+  for (const id of rota) counts.set(id, (counts.get(id) ?? 0) + 1)
+  for (const n of counts.values()) if (n > RULES.maxOversPerBowler) autoShort++
+  if (counts.size < RULES.minBowlers) autoShort++
 }
-check('AUTO plan totals 45 overs', autoShort, 0, 0, (v) => v)
+check('the auto captain gets through 45', autoShort, 0, 0, (v) => v)
 
 check('no consecutive overs', rotaViolations, 0, 0, (v) => v)
-check('awkward allocations stay legal', splitViolations + splitCap, 0, 0, (v) => v)
+check('awkward blocks stay legal', splitViolations + splitCap, 0, 0, (v) => v)
 check(
-  'window counts honoured exactly',
+  'block counts honoured exactly',
   countTotal === 0 ? 0 : (countHonoured / countTotal) * 100, 100, 100, (v) => v.toFixed(1) + '%',
 )
 check('bowlers bowl in spells', runCount === 0 ? 0 : runTotal / runCount, 2.4, 9, (v) => v.toFixed(2))
@@ -375,15 +380,65 @@ check('crease snapshot is sane', creaseMismatch, 0, 0, (v) => v)
 let previewMismatch = 0
 for (let i = 0; i < 300; i++) {
   const seed = i * 7919 + 13
-  const plan = autoPlan(BAGSHOT_XI)
-  const preview = buildRota(plan, makeRng(seed))
-  const innings = simulateFieldingInnings(evenOpponents[i % evenOpponents.length], BAGSHOT_XI, plan, seed)
-  for (const o of innings.overSummaries) {
-    const predicted = BAGSHOT_XI.find((p) => p.id === preview[o.over - 1])
-    if (predicted?.name !== o.bowlerName) previewMismatch++
+  const opp = evenOpponents[i % evenOpponents.length]
+  // Play out a whole innings a block at a time, the way the screen does: build
+  // the block, preview it, take the field, and check the preview against who
+  // really bowled those nine overs.
+  const plan = emptyPlan()
+  const idOf = (name) => (name === undefined ? null : BAGSHOT_XI.find((p) => p.name === name)?.id ?? null)
+  for (let b = 0; b < BLOCK_COUNT; b++) {
+    // The last *two* bowlers cross the join: one is locked out of the first
+    // over, the other still holds his end. A preview that only carried the last
+    // one across was wrong about a third of the time.
+    const done = b === 0
+      ? []
+      : simulateFieldingInnings(opp, BAGSHOT_XI, plan, seed)
+        .overSummaries.filter((o) => o.over <= b * BLOCK_OVERS)
+    const before = idOf(done[done.length - 1]?.bowlerName)
+    const beforeThat = idOf(done[done.length - 2]?.bowlerName)
+    plan[b] = autoBlock(BAGSHOT_XI, b, oversBowled(plan, b), before)
+    const preview = buildBlockRota(b, plan[b], before, beforeThat, blockRng(seed, b))
+    const innings = simulateFieldingInnings(opp, BAGSHOT_XI, plan, seed)
+    for (const o of innings.overSummaries) {
+      if (blockOf(o.over) !== b) continue
+      const predicted = BAGSHOT_XI.find((p) => p.id === preview[o.over - 1 - b * BLOCK_OVERS])
+      if (predicted?.name !== o.bowlerName) previewMismatch++
+    }
   }
 }
 check('rota preview matches reality', previewMismatch, 0, 0, (v) => v)
+
+// The whole live-bowling design rests on this: deciding block three cannot
+// reach backwards and re-deal blocks one and two. Each block's rota comes from
+// its own seeded stream for exactly that reason — share one and every later
+// decision would silently rewrite the overs you had already watched.
+let rewritten = 0
+for (let i = 0; i < 200; i++) {
+  const seed = i * 104729 + 17
+  const opp = evenOpponents[i % evenOpponents.length]
+  const partial = emptyPlan()
+  partial[0] = autoBlock(BAGSHOT_XI, 0, new Map(), null)
+  const early = simulateFieldingInnings(opp, BAGSHOT_XI, partial, seed)
+
+  // Now call the later blocks differently and re-run.
+  const fuller = [...partial]
+  const bowlers = BAGSHOT_XI.filter((p) => p.bowl.def >= 20 && p.bowl.att >= 20 && !p.wk)
+  for (let b = 1; b < BLOCK_COUNT; b++) {
+    fuller[b] = [
+      { playerId: bowlers[(b * 2) % bowlers.length].id, overs: 5 },
+      { playerId: bowlers[(b * 2 + 1) % bowlers.length].id, overs: 4 },
+    ]
+  }
+  const later = simulateFieldingInnings(opp, BAGSHOT_XI, fuller, seed)
+
+  for (const o of early.overSummaries) {
+    if (o.over > BLOCK_OVERS) break
+    const same = later.overSummaries.find((x) => x.over === o.over)
+    if (!same || same.bowlerName !== o.bowlerName || same.total !== o.total
+        || same.balls.join('') !== o.balls.join('')) rewritten++
+  }
+}
+check('deciding later never re-bowls the start', rewritten, 0, 0, (v) => v)
 
 // ------------------------------------------------------- DLS resource table
 
@@ -447,61 +502,78 @@ const planAttack = (() => {
 })()
 
 /**
- * Deal each window out to a preference order, respecting every cap.
+ * Deal all five blocks, taking each block's preference order from `prefFor`.
  *
- * Scarce windows first, exactly as `autoPlan` does — the new ball and the death
- * are nine and ten overs with a five-over ceiling apiece, and filling in innings
- * order lets the middle swallow everyone's allowance and leaves nobody able to
- * bowl at the end.
+ * Whoever bowled the last over of the block behind can only have half of the
+ * next one, so the join is tracked as we go — the same rule the screen enforces.
  */
-const dealPlan = (prefs) => {
-  const overs = new Map(planAttack.map((p) => [p.id, { newBall: 0, middle: 0, death: 0 }]))
-  const total = (id) => allocatedOvers({ overs: overs.get(id) })
-  for (const w of ['death', 'newBall', 'middle']) {
-    let left = windowSize(w)
-    for (const p of [...prefs[w], ...planAttack]) {
-      if (left <= 0) break
-      const room = Math.min(
-        windowCap(w) - overs.get(p.id)[w], RULES.maxOversPerBowler - total(p.id), left,
-      )
-      if (room > 0) { overs.get(p.id)[w] += room; left -= room }
+const dealPlan = (prefFor) => {
+  const used = new Map()
+  const plan = []
+  let previous = null
+  for (let b = 0; b < BLOCK_COUNT; b++) {
+    const want = blockSize(b)
+    const alloc = new Map()
+    let leftToGive = want
+    for (const p of [...prefFor(b), ...planAttack]) {
+      if (leftToGive <= 0) break
+      const ceiling = p.id === previous ? Math.floor(want / 2) : BLOCK_CAP
+      const room = Math.min(ceiling - (alloc.get(p.id) ?? 0), oversLeft(used, p.id), leftToGive)
+      if (room > 0) { alloc.set(p.id, (alloc.get(p.id) ?? 0) + room); leftToGive -= room }
     }
-    if (left > 0) return null
+    if (leftToGive > 0) return null
+    const block = [...alloc.entries()].map(([playerId, overs]) => ({ playerId, overs }))
+    if (validateBlock(b, block, BAGSHOT_XI, used, previous).length > 0) return null
+    const part = buildBlockRota(b, block, previous, null, blockRng(1, b))
+    for (const id of part) used.set(id, (used.get(id) ?? 0) + 1)
+    previous = part[part.length - 1] ?? previous
+    plan.push(block)
   }
-  return planAttack.map((p) => ({ playerId: p.id, overs: overs.get(p.id) }))
+  return plan
 }
 
 const rankBy = (f) => [...planAttack].sort((a, b) => f(b) - f(a))
 const seamFirst = rankBy((p) => (p.bowlType === 'spin' ? 0 : 1000) + p.bowl.att)
 const spinFirst = rankBy((p) => (p.bowlType === 'spin' ? 1000 : 0) + p.bowl.def)
 const swingFirst = rankBy((p) => (p.swing ?? 0) * 10 + p.bowl.att)
+const byIndex = rankBy((p) => p.bowl.def + p.bowl.att)
 
 // Swing takes the new ball, spin squeezes the middle, the strike bowlers finish.
-const goodPlan = dealPlan({
-  newBall: swingFirst.filter((p) => p.bowlType !== 'spin'),
-  middle: spinFirst,
-  death: seamFirst,
+const goodPlan = dealPlan((b) => {
+  const phase = phaseOf(blockRange(b).from)
+  if (phase === 'powerplay') return swingFirst.filter((p) => p.bowlType !== 'spin')
+  if (phase === 'death') return seamFirst
+  return spinFirst
 })
-// Nobody thought about it: every window filled best-bowler-first on raw index,
-// type and swing ignored. That is the realistic bad plan rather than a
-// pathological one — it's what you get from filling the boxes without a reason,
-// and it buries the swing bowlers in the middle overs.
-const byIndex = rankBy((p) => p.bowl.def + p.bowl.att)
-const naivePlan = dealPlan({ newBall: byIndex, middle: byIndex, death: byIndex })
+// Nobody thought about it: the five best by raw index, taken two at a time in
+// that order for nine overs each, type and swing ignored. The realistic bad
+// plan rather than a pathological one — it's what you get from working down the
+// list, and it buries the swing bowlers in the middle overs.
+//
+// Note it can't simply be "best index first every block": that hands the first
+// three men their full allowance by the twenty-seventh over and strands the
+// death with one bowler and five overs. Which is a real trap, and why
+// `validateBlock` warns about it — but a plan that never validates isn't a
+// comparison, it's a crash.
+const naivePlan = Array.from({ length: BLOCK_COUNT }, (_, b) => ([
+  { playerId: byIndex[(b * 2) % byIndex.length].id, overs: 5 },
+  { playerId: byIndex[(b * 2 + 1) % byIndex.length].id, overs: 4 },
+]))
 
-const concede = (plan) => {
+const concede = (plan, fields) => {
   const totals = []
   for (let i = 0; i < 800; i++) {
     totals.push(
-      simulateFieldingInnings(evenOpponents[i % evenOpponents.length], BAGSHOT_XI, plan, i * 7919 + 11).runs,
+      simulateFieldingInnings(
+        evenOpponents[i % evenOpponents.length], BAGSHOT_XI, plan, i * 7919 + 11, undefined, fields,
+      ).runs,
     )
   }
   return mean(totals)
 }
 
-if (!goodPlan || !naivePlan
-    || validatePlan(goodPlan, BAGSHOT_XI).length || validatePlan(naivePlan, BAGSHOT_XI).length) {
-  check('deployment is worth having', 0, 12, 40, (v) => v.toFixed(1))
+if (!goodPlan || !naivePlan) {
+  check('deployment is worth having', 0, 8, 30, (v) => v.toFixed(1))
   console.log('  \x1b[90mcould not build a legal pair of plans to compare\x1b[0m')
 } else {
   check('deployment is worth having', concede(naivePlan) - concede(goodPlan), 8, 30, (v) => v.toFixed(1))
@@ -509,11 +581,14 @@ if (!goodPlan || !naivePlan
 
 // ...and it must stay a question of *when*, not *who*. If widening the phase
 // table ever makes one type flatly better, the plan collapses into "pick the
-// good bowlers" and the windows stop meaning anything.
-const flatPlan = planAttack.map((p, i) => ({
-  playerId: p.id,
-  overs: { newBall: i < 4 ? 2 : 1, middle: i < 4 ? 5 : 6, death: 2 },
-}))
+// good bowlers" and the blocks stop meaning anything.
+const flatPlan = Array.from({ length: BLOCK_COUNT }, (_, b) => (
+  // Same two men every block, rotated so everyone bowls in every phase.
+  [
+    { playerId: planAttack[(b * 2) % planAttack.length].id, overs: 5 },
+    { playerId: planAttack[(b * 2 + 1) % planAttack.length].id, overs: 4 },
+  ]
+))
 const asType = (type) => {
   const xi = BAGSHOT_XI.map((p) =>
     (planAttack.includes(p) ? { ...p, bowlType: type, swing: undefined } : p))
@@ -524,6 +599,58 @@ const asType = (type) => {
   return mean(totals)
 }
 check('pace and spin stay level', Math.abs(asType('pace') - asType('spin')), 0, 8, (v) => v.toFixed(1))
+
+// --------------------------------------------------------------- the fields
+
+console.log('\n\x1b[1mThe field\x1b[0m')
+
+// A field must be a decision, not a dial: it has to be worth real runs, and the
+// same setting has to be a different deal for different bowlers. Without the
+// second half it's one multiplier applied to everybody, which is exactly the
+// mistake the first version of batting intent made.
+const allField = (f) => Array(BLOCK_COUNT).fill(f)
+if (goodPlan) {
+  const totals = FIELDS.map((f) => ({ f: f.id, runs: concede(goodPlan, allField(f.id)) }))
+  const spread = totals.find((t) => t.f === 'spread').runs
+  const attack = totals.find((t) => t.f === 'attack').runs
+  check('the field is worth runs', Math.abs(attack - spread), 6, 40, (v) => v.toFixed(1))
+  // ...and no setting can be free money. If one of them wins by a distance
+  // there is no decision here, just a button you always press.
+  const best = Math.min(...totals.map((t) => t.runs))
+  const worst = Math.max(...totals.map((t) => t.runs))
+  check('no setting runs away with it', worst - best, 0, 32, (v) => v.toFixed(1))
+  console.log(`  \x1b[90m${totals.map((t) => `${t.f} ${t.runs.toFixed(0)}`).join(' · ')}\x1b[0m`)
+}
+
+// A ring field is the tightest thing there is — singles are cheapest there and
+// dearer either side of it. That's what stops SPREAD being a strictly better
+// CONTAIN.
+const singlesFor = (f) => fieldEffect(fieldPush(f), 70, 70).single
+check(
+  'a ring field is the tightest',
+  Math.min(singlesFor('spread'), singlesFor('press'), singlesFor('attack')) - singlesFor('contain'),
+  0.001, 0.2, (v) => v.toFixed(3),
+)
+
+// Attacking suits a strike bowler far more than a part-timer — the same
+// asymmetry batting intent has between a striker and a tailender.
+const gun = fieldEffect(fieldPush('attack'), 80, 90)
+const trundler = fieldEffect(fieldPush('attack'), 45, 42)
+check('attacking pays a strike bowler', (gun.wicket - 1) * 100, 30, 90, (v) => v.toFixed(0) + '%')
+check('...and a part-timer less', (trundler.wicket - 1) * 100, 8, 45, (v) => v.toFixed(0) + '%')
+check(
+  'the gun gets the better exchange',
+  (gun.wicket - 1) / (trundler.wicket - 1), 1.25, 4, (v) => v.toFixed(2) + '×',
+)
+// ...and spreading is only worth ordering if he can bowl to it.
+const tidy = fieldEffect(fieldPush('spread'), 85, 70)
+const loose = fieldEffect(fieldPush('spread'), 38, 55)
+check('spreading saves a tidy bowler runs', 1 - tidy.boundary, 0.20, 0.55, (v) => v.toFixed(2))
+check('...and barely helps a loose one', 1 - loose.boundary, 0.05, 0.28, (v) => v.toFixed(2))
+check(
+  'no field is free',
+  Math.min(fieldEffect(fieldPush('attack'), 80, 90).boundary, 99) - 1, 0.10, 0.60, (v) => v.toFixed(2),
+)
 
 // ------------------------------------------------------------- opening batters
 
@@ -542,8 +669,13 @@ const batOut = (order) => {
 }
 // Identical players, identical order — the only difference is whether the top
 // two are built for the new ball.
+// Being an opener is now a positive rather than merely the absence of a
+// penalty, so the gap between a specialist and a middle-order man pushed up is
+// wide — around three-quarters of an over's worth of extra risk with the new
+// ball. That's deliberate: it's what makes the top two a decision rather than
+// "best batter first".
 const stripped = openOrder.map((p, i) => (i < 2 ? { ...p, opener: false } : p))
-check('opening with the wrong men costs runs', batOut(openOrder) - batOut(stripped), 3, 20, (v) => v.toFixed(1))
+check('opening with the wrong men costs runs', batOut(openOrder) - batOut(stripped), 5, 35, (v) => v.toFixed(1))
 
 // ...and it has to be the *new ball* doing it, not a flat penalty on the top
 // two. The damage has to be done by the time the shine goes; after that a
@@ -561,7 +693,7 @@ const wktsBy = (order, over) => {
 }
 check(
   'the new ball is what does it',
-  wktsBy(stripped, SWING_WINDOW) - wktsBy(openOrder, SWING_WINDOW), 0.10, 1.20,
+  wktsBy(stripped, SWING_WINDOW) - wktsBy(openOrder, SWING_WINDOW), 0.10, 1.80,
   (v) => v.toFixed(2) + ' wkts',
 )
 
@@ -575,6 +707,95 @@ const tailMarked = openOrder.map((p, i) => (i >= 7 ? { ...p, opener: true } : p)
 check(
   '...and it is gone once the shine is',
   Math.abs(batOut(tailMarked) - batOut(openOrder)), 0, 2.5, (v) => v.toFixed(1) + ' runs',
+)
+
+// ------------------------------------------------------------- getting in
+
+console.log('\n\x1b[1mConfidence\x1b[0m')
+
+// Getting in has to be the main story of a batting innings — steep early, and
+// most of it won inside the first dozen balls.
+check('walking out is nothing like set', confidence(0), 0, 0, (v) => v.toFixed(2))
+check('a dozen balls does most of it', confidence(12), 0.42, 0.75, (v) => v.toFixed(2))
+check('and it tops out', confidence(60), 1, 1, (v) => v.toFixed(2))
+let confSlips = 0
+for (let b = 1; b <= 80; b++) if (confidence(b) < confidence(b - 1)) confSlips++
+check('never goes backwards', confSlips, 0, 0, (v) => v)
+
+// The whole point: a set batter is far harder to shift than a new one. Measured
+// in the innings rather than from the constants, so it survives a retune.
+const dismissRate = (lo, hi) => {
+  let out = 0, balls = 0
+  for (let i = 0; i < 600; i++) {
+    const r = simulateBattingInnings(evenOpponents[i % evenOpponents.length], openOrder, 999, i * 7919 + 11)
+    for (const c of r.batting) {
+      if (!c.batted || c.balls === 0) continue
+      // Only count a card whose whole innings sits in the band — a batter who
+      // got past `hi` obviously survived it.
+      if (c.balls <= lo) continue
+      const inBand = Math.min(c.balls, hi) - lo
+      if (inBand <= 0) continue
+      balls += inBand
+      if (c.out && c.balls <= hi) out++
+    }
+  }
+  return balls === 0 ? 0 : (out / balls) * 100
+}
+const early = dismissRate(0, 12)
+const late = dismissRate(36, 90)
+check('a new batter is the one you want', early / Math.max(late, 1e-9), 1.6, 5, (v) => v.toFixed(2) + '×')
+console.log(`  \x1b[90mfirst 12 balls ${early.toFixed(1)}% per ball · past 36 ${late.toFixed(1)}%\x1b[0m`)
+
+// ---------------------------------------------------- the shape of an innings
+//
+// Aggregate totals can be right while every individual score is wrong. Club
+// batting is a fat low band, a real middle, and the occasional big one — and
+// openers face the most balls, so the top of the order must outscore the middle.
+// Before confidence existed the median was 8 with a 39% bulge at 1-9, and a
+// number five outscored an opener.
+
+console.log('\n\x1b[1mThe shape of a batting innings\x1b[0m')
+
+const scores = []
+const byPos = Array.from({ length: 11 }, () => [])
+let dismissals = 0, duckOuts = 0
+for (let i = 0; i < 1200; i++) {
+  const opp = evenOpponents[i % evenOpponents.length]
+  const other = evenOpponents[(i + 1) % evenOpponents.length]
+  const m = simulateMatch(opp, other.xi, i * 7919 + 13)
+  for (const innings of [m.first, m.second]) {
+    innings.batting.forEach((c, n) => {
+      if (!c.batted || c.balls === 0) return
+      scores.push(c.runs)
+      byPos[n].push(c.runs)
+      if (c.out) { dismissals++; if (c.runs === 0) duckOuts++ }
+    })
+  }
+}
+const band = (lo, hi) => (scores.filter((s) => s >= lo && s <= hi).length / scores.length) * 100
+const meanOf = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0)
+const topThree = meanOf([...byPos[0], ...byPos[1], ...byPos[2]])
+const middle = meanOf([...byPos[4], ...byPos[5]])
+
+// These bands are **club** cricket, not the professional game, and the first
+// version of this block had professional numbers in it — a median of 12 and a
+// duck rate of one in ten. Work it out from a real card instead: a side bowled
+// out for 175 has ten dismissed batters sharing about 160 off the bat, which is
+// a mean of 16, and club cards are heavily right-skewed. 45, 38, 22, 15, 8, 6,
+// 4, 3, 1, 0, 0 is an utterly ordinary Saturday, and its median is 6 with two
+// ducks in ten dismissals. Chasing a median of 12 here would mean an engine
+// nobody gets out in.
+check('median score', pct(scores, 50), 5, 12, (v) => Math.round(v))
+check('ducks as a share of dismissals', (duckOuts / dismissals) * 100, 12, 24, (v) => v.toFixed(1) + '%')
+check('single figures are common', band(1, 9), 30, 46, (v) => v.toFixed(1) + '%')
+check('...but not the whole innings', band(20, 49), 14, 28, (v) => v.toFixed(1) + '%')
+check('fifties are an event', band(50, 300), 5, 16, (v) => v.toFixed(1) + '%')
+// The one that was genuinely wrong before confidence existed: a number five
+// outscored an opener, which happens in no real scorebook. Openers face by far
+// the most deliveries, so the top of the order has to be the best place to bat.
+check('the top three outscore the middle', topThree - middle, 0.4, 12, (v) => v.toFixed(1))
+console.log(
+  `  \x1b[90mby position: ${byPos.map((a) => meanOf(a).toFixed(0)).join(' · ')}\x1b[0m`,
 )
 
 // ------------------------------------------------------ a balanced auto XI
@@ -736,7 +957,7 @@ for (let s = 0; s < SEASONS; s++) {
     const fit = availablePlayers(BAGSHOT_SQUAD, season.availability)
     const xiR = autoSelectXI(fit)
     const fm = seasonForms(season)
-    const one = simulateFieldingInnings(opp, xiR, autoPlan(xiR), sd, fm)
+    const one = simulateFieldingInnings(opp, xiR, emptyPlan(), sd, fm)
     const two = simulateBattingInnings(opp, autoBattingOrder(xiR), one.runs + 1, sd, fm)
     freshAirPerMatch.push(freshAirPlayers(xiR, one, two).length)
     if (fit.length < 11) seasonUnpickable++

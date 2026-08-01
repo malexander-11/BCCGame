@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { RULES } from '../data/types'
+import { RULES, settledLabel } from '../data/types'
 import type { BallEvent, InningsResult, OverSummary } from '../data/types'
 import { formatOvers } from '../engine/innings'
 import { dlsPar } from '../engine/dls'
@@ -32,6 +32,10 @@ function tokenStyle(token: string): { colour: string; weight: number } {
 }
 
 const BIG_EVENTS: BallEvent['type'][] = ['wicket', 'ton', 'win', 'drop']
+
+/** Green while he's there to be had, red once he's in. */
+const settledColour = (settled: number) =>
+  settled >= 0.85 ? theme.red : settled < 0.22 ? theme.green : theme.pitch
 
 /**
  * The feed mixes two things: a scorebook strip for each completed over, and the
@@ -199,6 +203,13 @@ export function Sim({
                 <span className="text-[11px] font-normal ml-1" style={{ color: theme.faint }}>
                   ({b.balls})
                 </span>
+              </span>
+              {/* How set he is. A new man is there to be had; a set one isn't. */}
+              <span
+                className="disp text-[8px] tracking-widest w-[4.6rem] text-right shrink-0"
+                style={{ color: settledColour(b.settled) }}
+              >
+                {settledLabel(b.settled)}
               </span>
             </div>
           ))}

@@ -1,6 +1,7 @@
-import { BLOCK_COUNT, BLOCK_OVERS, RULES } from '../data/types'
-import type { Intent, Player } from '../data/types'
-import { isBowler, playerQuality } from './ratings'
+import { BLOCK_CAP, BLOCK_COUNT, BLOCK_OVERS, blockRange, phaseOf, RULES } from '../data/types'
+import type { BlockPlan, BowlingPlan, Field, Intent, Player } from '../data/types'
+import { availableBowlers, isBowler, playerQuality, SWING_WINDOW } from './ratings'
+import { blockSize, oversLeft } from './rota'
 
 const bowlingRank = (p: Player) => p.bowl.def + p.bowl.att
 
@@ -127,6 +128,110 @@ export function autoIntents(target: number): Intent[] {
     const par = Math.round(target * (ballsGone / RULES.balls))
     return autoIntent(target - par, RULES.balls - ballsGone, Math.floor(i * 1.4))
   })
+}
+
+// ------------------------------------------------------------- the auto captain
+
+/**
+ * How much this bowler wants the next nine overs.
+ *
+ * The same shape a captain works to: the new ball to whoever swings it, the
+ * middle to the spinners, and your best strike bowler saved for the end. `left`
+ * breaks ties toward whoever still has overs to burn, which is what stops the
+ * last block being handed to three men who have already bowled their nine.
+ */
+function appetite(p: Player, block: number, left: number): number {
+  const { from } = blockRange(block)
+  const phase = phaseOf(from)
+  const swings = (p.swing ?? 0) >= 50 && from <= SWING_WINDOW
+  const spin = p.bowlType === 'spin'
+
+  let want: number
+  if (phase === 'powerplay') want = swings ? 1.15 : spin ? 0.15 : 0.65
+  else if (phase === 'death') want = spin ? 0.20 : 0.45 + (p.bowl.att / 100) * 0.55
+  else want = spin ? 1.0 : swings ? 0.55 : 0.62
+
+  // A man with nothing left is no use however much he suits the moment.
+  if (left <= 0) return -1
+  // ...and between two men who suit it equally, bowl the better one. Without
+  // this the tie fell to XI order, which is batting order — so the auto captain
+  // handed the middle overs to a batsman who bowls a bit while three frontline
+  // seamers stood at mid-on with nine overs each still in hand.
+  return want + left * 0.02 + (p.bowl.def + p.bowl.att) / 400
+}
+
+/**
+ * Who bowls the next nine overs, when nobody has said.
+ *
+ * Covers the opposition, the auto manager, and every block ahead of wherever
+ * you've got to — so an unmanaged innings is captained rather than random, and
+ * a block you skip is filled by someone reading the same game you are.
+ */
+export function autoBlock(
+  xi: Player[], block: number, used: Map<string, number>, previous: string | null,
+): BlockPlan {
+  const pool = availableBowlers(xi)
+  if (pool.length === 0) return []
+
+  const want = blockSize(block)
+  const alloc = new Map<string, number>()
+  const queue = [...pool].sort(
+    (a, b) => appetite(b, block, oversLeft(used, b.id)) - appetite(a, block, oversLeft(used, a.id)),
+  )
+
+  let left = want
+  for (const p of queue) {
+    if (left <= 0) break
+    // Whoever just bowled can only have every other over of this block.
+    const ceiling = p.id === previous ? Math.floor(want / 2) : BLOCK_CAP
+    const room = Math.min(ceiling, oversLeft(used, p.id), left)
+    if (room <= 0) continue
+    // Two men share a block; a third only comes on if they can't cover it.
+    const share = alloc.size < 2 ? Math.min(room, Math.ceil(want / 2)) : room
+    alloc.set(p.id, (alloc.get(p.id) ?? 0) + share)
+    left -= share
+  }
+
+  // Anyone at all, rather than hand back a block that doesn't add up.
+  if (left > 0) {
+    for (const p of pool) {
+      if (left <= 0) break
+      const ceiling = p.id === previous ? Math.floor(want / 2) : BLOCK_CAP
+      const room = Math.min(ceiling - (alloc.get(p.id) ?? 0), oversLeft(used, p.id), left)
+      if (room <= 0) continue
+      alloc.set(p.id, (alloc.get(p.id) ?? 0) + room)
+      left -= room
+    }
+  }
+
+  return [...alloc.entries()].map(([playerId, overs]) => ({ playerId, overs }))
+}
+
+/**
+ * An innings with nothing called yet. Every block falls to `autoBlock`, so this
+ * is a fully captained innings rather than an empty one — which is exactly what
+ * the opposition and the auto manager want.
+ */
+export const emptyPlan = (): BowlingPlan => Array.from({ length: BLOCK_COUNT }, () => null)
+
+/**
+ * What field a sensible captain sets, given the state of the innings.
+ *
+ * Early on you attack — the ball is new, they aren't in, and a wicket now is
+ * worth two later. Once they're set and going, you cut your losses and save
+ * runs. At the death everyone is back whatever the score, because they're
+ * swinging at everything.
+ */
+export function autoField(block: number, runs: number, wickets: number): Field {
+  const { from } = blockRange(block)
+  if (phaseOf(from) === 'death') return wickets >= 7 ? 'press' : 'spread'
+  if (block === 0) return 'attack'
+  // Runs per over so far tells you whether you're on top or hanging on.
+  const rr = from > 1 ? runs / (from - 1) : 0
+  if (wickets >= 5) return 'press'
+  if (rr > 5.4) return 'spread'
+  if (rr > 4.3) return 'contain'
+  return 'press'
 }
 
 /** Cheap read on how strong an XI is, used for match previews. */
