@@ -85,6 +85,7 @@ export function Squad({
           bat: { skill: num(p.bat?.skill, 60), pwr: num(p.bat?.pwr, 60) },
           bowl: { def: num(p.bowl?.def), att: num(p.bowl?.att) },
           wk: p.wk === true,
+          opener: p.opener === true,
           bowlType: p.bowlType === 'spin' ? 'spin' : p.bowlType === 'pace' ? 'pace' : undefined,
           swing: swing > 0 ? swing : undefined,
           availability: avail,
@@ -111,6 +112,7 @@ export function Squad({
 
   const keepers = squad.filter((p) => p.wk).length
   const bowlers = squad.filter((p) => p.bowl.def > 0 && p.bowl.att > 0).length
+  const openers = squad.filter((p) => p.opener).length
 
   return (
     <div className="pt-6 pb-4 pop">
@@ -124,15 +126,20 @@ export function Squad({
       <div className="text-[11.5px] leading-relaxed mb-3 px-1" style={{ color: theme.muted }}>
         Every rating runs 0-100 where <span style={{ color: theme.gold }}>60 is league average</span>.
         Leave DEF and ATT at 0 for someone who doesn't bowl.{' '}
+        <span style={{ color: theme.gold }}>OPENER</span> marks a player who can see off the new
+        ball — anyone else facing it in the first dozen overs gets out more often.{' '}
         <span style={{ color: theme.gold }}>AVAIL</span> is out of 10 — how many weeks in ten he
         actually turns up. Changes save automatically.
       </div>
 
-      {(keepers === 0 || bowlers < 5) && (
+      {(keepers === 0 || bowlers < 5 || openers < 2) && (
         <div className="mb-3">
           <Notice>
             {keepers === 0 && 'No wicketkeeper in the squad. '}
-            {bowlers < 5 && `Only ${bowlers} can bowl — you need 5 to field a legal attack.`}
+            {bowlers < 5 && `Only ${bowlers} can bowl — you need 5 to field a legal attack. `}
+            {openers < 2 && (openers === 0
+              ? 'Nobody is marked as an opener — whoever bats first will struggle against the new ball.'
+              : 'Only one opener marked. Mark a few more so a Saturday absence does not leave you exposed.')}
           </Notice>
         </div>
       )}
@@ -268,7 +275,7 @@ export function Squad({
                     separately — keenness won't save a hamstring.
                   </div>
 
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 mb-2">
                     <GhostButton
                       active={p.wk === true}
                       onClick={() => update(p.id, { ...p, wk: !p.wk })}
@@ -276,6 +283,16 @@ export function Squad({
                     >
                       KEEPER
                     </GhostButton>
+                    <GhostButton
+                      active={p.opener === true}
+                      onClick={() => update(p.id, { ...p, opener: !p.opener })}
+                      className="flex-1 text-center"
+                    >
+                      OPENER
+                    </GhostButton>
+                  </div>
+
+                  <div className="flex gap-2">
                     <GhostButton
                       active={p.bowlType === 'pace'}
                       onClick={() => update(p.id, { ...p, bowlType: p.bowlType === 'pace' ? undefined : 'pace' })}

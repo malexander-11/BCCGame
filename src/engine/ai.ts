@@ -2,10 +2,19 @@ import { BLOCK_COUNT, BLOCK_OVERS, RULES } from '../data/types'
 import type { Intent, Player } from '../data/types'
 import { isBowler, playerQuality } from './ratings'
 
+const bowlingRank = (p: Player) => p.bowl.def + p.bowl.att
+
 /**
- * Picks a legal, sensible XI from a bigger squad: a keeper first, then enough
- * bowlers to get through 45 overs, then the best batters left. Same shape a
- * selection committee would arrive at, without the argument.
+ * Picks a legal, sensible XI from a bigger squad.
+ *
+ * A selection committee doesn't rank the squad and draw a line — it picks a
+ * **shape**: someone to keep, someone to take the new ball, someone to bowl the
+ * middle overs, a top order who can face the new ball, and then whoever scores
+ * the most runs. Ranking on raw bowling index instead gives you five seamers, no
+ * spinner and nobody to open, which looks fine on paper and loses on grass.
+ *
+ * Every step falls back to "best available" when the squad can't oblige, so a
+ * side with no spinner or no keeper still gets eleven names.
  */
 export function autoSelectXI(squad: Player[]): Player[] {
   const chosen: Player[] = []
@@ -13,18 +22,49 @@ export function autoSelectXI(squad: Player[]): Player[] {
     if (p && !chosen.includes(p)) chosen.push(p)
   }
   const rest = () => squad.filter((p) => !chosen.includes(p))
+  const best = (pool: Player[], rank: (p: Player) => number) =>
+    [...pool].sort((a, b) => rank(b) - rank(a))
 
   // The keeper is non-negotiable — pick the one who bats best.
-  take([...squad.filter((p) => p.wk)].sort((a, b) => playerQuality(b) - playerQuality(a))[0])
+  take(best(squad.filter((p) => p.wk), playerQuality)[0])
 
-  // Then a front-line attack.
-  const bowlers = rest()
-    .filter(isBowler)
-    .sort((a, b) => (b.bowl.def + b.bowl.att) - (a.bowl.def + a.bowl.att))
-  for (const p of bowlers.slice(0, RULES.minBowlers)) take(p)
+  // The attack is counted separately from the XI because the keeper doesn't
+  // bowl however good his figures look.
+  const attack: Player[] = []
+  const enlist = (p: Player | undefined) => {
+    if (!p || chosen.includes(p) || attack.length >= RULES.minBowlers) return
+    attack.push(p)
+    take(p)
+  }
+  const bowlers = () => best(rest().filter(isBowler), bowlingRank)
+
+  // Two to take the new ball. Swing first — it's worth more than raw ratings
+  // for the twelve overs it lasts — then the best seamers behind them.
+  const openWith = () => [
+    ...best(bowlers().filter((p) => (p.swing ?? 0) > 0), (p) => p.swing ?? 0),
+    ...bowlers().filter((p) => p.bowlType !== 'spin'),
+    ...bowlers(),
+  ]
+  while (attack.length < 2) {
+    const next = openWith()[0]
+    if (!next) break
+    enlist(next)
+  }
+
+  // At least one frontline spinner — someone has to bowl the middle overs.
+  enlist(bowlers().find((p) => p.bowlType === 'spin'))
+
+  // Then the best of the rest, up to a full attack.
+  for (const p of bowlers()) enlist(p)
+
+  // Two who can see off the new ball, best batter first.
+  for (const p of best(rest().filter((p) => p.opener), playerQuality)) {
+    if (chosen.filter((c) => c.opener).length >= 2 || chosen.length >= 11) break
+    take(p)
+  }
 
   // Fill up with runs.
-  for (const p of rest().sort((a, b) => playerQuality(b) - playerQuality(a))) {
+  for (const p of best(rest(), playerQuality)) {
     if (chosen.length >= 11) break
     take(p)
   }
@@ -32,18 +72,25 @@ export function autoSelectXI(squad: Player[]): Player[] {
   return autoBattingOrder(chosen.slice(0, 11))
 }
 
+const battingRank = (p: Player) => 0.62 * p.bat.skill + 0.38 * p.bat.pwr
+
 /**
- * A sensible batting order: best batter first, tail last.
+ * A sensible batting order: the two best openers up top, then best batter
+ * first and the tail last.
+ *
+ * The top two are a separate decision from the rest of the order because the
+ * new ball is a separate job. Beyond slot two it's simply batting quality, and
+ * bowlers sink to the tail on their own.
  *
  * Used for the opposition, and offered as the AUTO button on Bagshot's own
  * batting-order screen.
  */
 export function autoBattingOrder(xi: Player[]): Player[] {
-  // No preferred slots any more, so this is simply best batter first. Bowlers
-  // sink to the tail on their own, which is where they were going anyway.
-  return [...xi].sort(
-    (a, b) => (0.62 * b.bat.skill + 0.38 * b.bat.pwr) - (0.62 * a.bat.skill + 0.38 * a.bat.pwr),
-  )
+  const byBatting = [...xi].sort((a, b) => battingRank(b) - battingRank(a))
+  // The best two who can actually do the job. If the side is short of openers
+  // this quietly falls back to the best batters, which is what a captain does.
+  const top = byBatting.filter((p) => p.opener).slice(0, 2)
+  return [...top, ...byBatting.filter((p) => !top.includes(p))]
 }
 
 /**

@@ -243,6 +243,30 @@ export function roleOf(p: { bat: { skill: number }; bowl: { def: number; att: nu
   return 'BAT'
 }
 
+/**
+ * The two marks that follow a name around the app: `†` for the keeper, the
+ * cricket convention, and `OP` for someone who can take the new ball, which has
+ * no convention so it says what it means.
+ */
+export function PlayerMarks({ p }: { p: { wk?: boolean; opener?: boolean } }) {
+  return (
+    <>
+      {p.wk && (
+        <span className="disp text-[9px] ml-1.5 tracking-wider" style={{ color: theme.sky }}>†</span>
+      )}
+      {p.opener && (
+        <span
+          className="disp text-[8px] ml-1.5 tracking-wider font-bold px-1 rounded align-[1px]"
+          style={{ background: `${theme.green}22`, color: theme.green }}
+          title="Opens the batting"
+        >
+          OP
+        </span>
+      )}
+    </>
+  )
+}
+
 export function roleColour(role: string): string {
   switch (role) {
     case 'WK': return theme.sky

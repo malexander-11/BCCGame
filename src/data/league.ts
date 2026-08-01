@@ -80,8 +80,13 @@ const DIVISION: Seed[] = [
  * which is sharper than the old rate-derived autopilot — and a sharper chase
  * helps the better side more, because Bagshot are above this division's
  * baseline to begin with.
+ *
+ * And to +15 when the auto-picked XI started wanting a shape rather than the
+ * five highest bowling indexes. A balanced attack with two new-ball bowlers and
+ * a spinner is worth about half a league place over five seamers, and the
+ * suggested side is what most seasons are played with.
  */
-const DIVISION_BASELINE = 14
+const DIVISION_BASELINE = 15
 
 // ------------------------------------------------------------------ XI shape
 //
@@ -91,14 +96,17 @@ const DIVISION_BASELINE = 14
 interface Archetype {
   skill: number; pwr: number; def: number; att: number
   wk?: boolean
+  opener?: boolean
   bowlType?: 'pace' | 'spin'
   swing?: number
 }
 
+// Every club has an opening pair and a spare. Without them the whole division
+// would carry the non-opener penalty at the top and nobody would post anything.
 const SHAPE: Archetype[] = [
-  { skill: 70, pwr: 60, def: 0, att: 0 },
-  { skill: 65, pwr: 70, def: 0, att: 0 },
-  { skill: 73, pwr: 63, def: 48, att: 42, bowlType: 'spin' },
+  { skill: 70, pwr: 60, def: 0, att: 0, opener: true },
+  { skill: 65, pwr: 70, def: 0, att: 0, opener: true },
+  { skill: 73, pwr: 63, def: 48, att: 42, bowlType: 'spin', opener: true },
   { skill: 69, pwr: 72, def: 0, att: 0 },
   { skill: 62, pwr: 77, def: 55, att: 50, bowlType: 'pace' },
   { skill: 63, pwr: 68, def: 67, att: 65, bowlType: 'pace', swing: 60 },
@@ -152,8 +160,9 @@ function buildXI(seed: Seed): Player[] {
       name,
       value: Math.round(clamp((quality - 28) / 7, 1, 11) * 10) / 10,
       wk: a.wk,
+      opener: a.opener,
       bowlType: a.bowlType,
-      swing: a.swing,
+      swing: a.swing ? rate(a.swing) : undefined,
       bat,
       bowl,
     }

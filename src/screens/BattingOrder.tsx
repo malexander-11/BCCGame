@@ -4,7 +4,7 @@ import type { Intent, Player } from '../data/types'
 import { IntentPicker } from '../components/IntentPicker'
 import { theme } from '../theme'
 import {
-  Eyebrow, GhostButton, PrimaryButton, ScreenHeader, StatBar, StickyFooter,
+  Eyebrow, GhostButton, PlayerMarks, PrimaryButton, ScreenHeader, StatBar, StickyFooter,
   roleColour, roleOf,
 } from '../components/ui'
 
@@ -62,6 +62,9 @@ export function BattingOrder({
     ? order.filter((p, i) => i + 1 >= 8 && didNotBowl.has(p.id))
     : []
 
+  // Whoever is facing the new ball without being built for it.
+  const exposed = order.slice(0, 2).filter((p) => !p.opener)
+
   return (
     <div className="pt-6 pb-4 pop">
       <ScreenHeader
@@ -84,6 +87,15 @@ export function BattingOrder({
           {held === null
             ? 'As you picked it. Tap two names to swap them.'
             : `Swapping ${order[held].name} — tap where he should bat.`}
+          {exposed.length > 0 && (
+            <>
+              {' '}
+              <span style={{ color: theme.pitch }}>
+                {exposed.map((p) => p.name).join(' and ')}{' '}
+                {exposed.length > 1 ? "aren't openers" : "isn't an opener"}.
+              </span>
+            </>
+          )}
         </div>
       </div>
 
@@ -137,9 +149,7 @@ export function BattingOrder({
                 <div className="min-w-0 flex-1">
                   <div className="text-[13.5px] font-semibold truncate" style={{ color: selected ? theme.gold : theme.cream }}>
                     {p.name}
-                    {p.wk && (
-                      <span className="disp text-[9px] ml-1.5 tracking-wider" style={{ color: theme.sky }}>†</span>
-                    )}
+                    <PlayerMarks p={p} />
                   </div>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     <span

@@ -15,9 +15,13 @@ import type { Player } from './types'
  * `value` is the player's price in £m. It is shown on the team sheet but does
  * not constrain selection — there is no budget cap.
  *
- * There is no preferred batting position — bat anyone anywhere. What you do
- * need to watch is that everyone you pick actually gets a go: a player who
- * neither bats nor bowls has had a fresh air game, and may well storm off.
+ * `opener` (optional) marks a player who can see off the new ball. Bat anyone
+ * anywhere you like, but whoever is facing in the first dozen overs without that
+ * flag is out of his depth and gets out more often for it. Two openers is the
+ * sensible minimum; five are marked here so a couple of absences can't strand
+ * you. What you also need to watch is that everyone you pick actually gets a go:
+ * a player who neither bats nor bowls has had a fresh air game, and may well
+ * storm off.
  *
  * A rating below 20 in either DEF or ATT means the player doesn't bowl, and he
  * won't appear in the bowling plan. Neither will whoever is keeping wicket.
@@ -46,12 +50,14 @@ export const BAGSHOT_SQUAD: Player[] = [
   {
     id: 'andrew-doyle', name: 'Andrew Doyle', value: 4,
     role: 'Batting all-rounder',
+    opener: true,
     bowlType: 'pace',
     bat: { skill: 85, pwr: 73 }, bowl: { def: 44, att: 52 },
   },
   {
     id: 'jack-grinstead', name: 'Jack Grinstead', value: 4,
     role: 'Batter',
+    opener: true,
     bowlType: 'pace',
     bat: { skill: 88, pwr: 85 }, bowl: { def: 27, att: 34 },
   },
@@ -148,6 +154,7 @@ export const BAGSHOT_SQUAD: Player[] = [
   {
     id: 'adit-gandhi', name: 'Adit Gandhi', value: 9.1,
     role: 'Spin all-rounder',
+    opener: true,
     bowlType: 'spin',
     bat: { skill: 83, pwr: 88 }, bowl: { def: 82, att: 79 },
   },
@@ -166,6 +173,7 @@ export const BAGSHOT_SQUAD: Player[] = [
   {
     id: 'matthew-funnell', name: 'Matthew Funnell', value: 3.5,
     role: 'Batting all-rounder',
+    opener: true,
     bowlType: 'pace',
     bat: { skill: 80, pwr: 74 }, bowl: { def: 32, att: 44 },
   },
@@ -190,7 +198,7 @@ export const BAGSHOT_SQUAD: Player[] = [
   {
     id: 'michael-davis', name: 'Michael Davis', value: 4.8,
     role: 'Wicketkeeper-batter',
-    wk: true, bowlType: 'pace',
+    wk: true, opener: true, bowlType: 'pace',
     bat: { skill: 82, pwr: 76 }, bowl: { def: 63, att: 55 },
   },
   {

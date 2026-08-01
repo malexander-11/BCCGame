@@ -107,14 +107,20 @@ export const SWING_WINDOW = 12
  * What a bowler does with a new ball. Swing is a sharp edge early and nothing
  * later, so a swing bowler held back to first change has wasted his best asset —
  * which is the whole point of choosing who takes the new ball.
+ *
+ * The gains are big on purpose. They used to be a third of this, which made the
+ * choice worth about five runs and the plan screen close to decorative; giving
+ * the new ball to two stock seamers instead of your swing pair now costs around
+ * thirteen. The base wicket rate came down to pay for it, so the same number of
+ * wickets fall — more of them just fall while the ball is doing something.
  */
 export function swingBoost(swing: number | undefined, over: number) {
   if (!swing) return { att: 1, def: 1 }
   const decay = clamp(1 - (over - 1) / SWING_WINDOW, 0, 1)
   const s = swing / 100
   return {
-    att: 1 + s * 0.58 * decay,  // wickets — the big effect
-    def: 1 + s * 0.22 * decay,  // harder to get away, but less so
+    att: 1 + s * 1.05 * decay,  // wickets — the big effect
+    def: 1 + s * 0.36 * decay,  // harder to get away, but less so
   }
 }
 

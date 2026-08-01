@@ -5,8 +5,8 @@ import { availableBowlers } from '../engine/ratings'
 import { formBand } from '../engine/form'
 import { theme } from '../theme'
 import {
-  availabilityColour, Eyebrow, GhostButton, Notice, PrimaryButton, ScreenHeader,
-  StatBar, StickyFooter, roleColour, roleOf,
+  availabilityColour, Eyebrow, GhostButton, Notice, PlayerMarks, PrimaryButton,
+  ScreenHeader, StatBar, StickyFooter, roleColour, roleOf,
 } from '../components/ui'
 
 export interface SelectionIssue { message: string }
@@ -93,6 +93,8 @@ export function Selection({
   const issues = selectionIssues(selected, keeperAvailable)
   const bowlers = availableBowlers(selected).length
   const keeper = selected.some((p) => p.wk)
+  // Whoever is walking out first without the credentials for it.
+  const exposed = selected.slice(0, 2).filter((p) => !p.opener)
 
   const listed = useMemo(() => {
     const rows = pickedOnly
@@ -197,9 +199,7 @@ export function Selection({
                   </span>
                   <span className="text-[13px] font-semibold truncate flex-1" style={{ color: holding ? theme.gold : theme.cream }}>
                     {p.name}
-                    {p.wk && (
-                      <span className="disp text-[9px] ml-1.5 tracking-wider" style={{ color: theme.sky }}>†</span>
-                    )}
+                    <PlayerMarks p={p} />
                   </span>
                   <span className="disp num text-[10px] shrink-0" style={{ color: theme.faint }}>
                     {p.bat.skill}/{p.bat.pwr}
@@ -233,6 +233,16 @@ export function Selection({
           {held === null
             ? 'Tap a name above to move him, then tap where he should bat.'
             : `Moving ${selected[held].name} — tap the slot he should take.`}
+          {exposed.length > 0 && (
+            <>
+              {' '}
+              <span style={{ color: theme.pitch }}>
+                {exposed.map((p) => p.name).join(' and ')}{' '}
+                {exposed.length > 1 ? "aren't openers" : "isn't an opener"} — the new ball will
+                be hard work for {exposed.length > 1 ? 'them' : 'him'}.
+              </span>
+            </>
+          )}
         </div>
       )}
 
@@ -312,6 +322,7 @@ export function Selection({
                   style={{ color: on ? theme.gold : theme.cream }}
                 >
                   {p.name}
+                  <PlayerMarks p={p} />
                 </div>
                 {missing ? (
                   // Wraps rather than truncates — the reason is half the fun.

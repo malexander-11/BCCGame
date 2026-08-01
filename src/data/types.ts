@@ -26,6 +26,12 @@ export interface Player {
   /** The club's own role label, e.g. 'Spin all-rounder'. Display only. */
   role?: string
   wk?: boolean
+  /**
+   * Opens the batting. Facing the new ball is a specialist's job — anyone else
+   * doing it carries extra risk until the shine has gone, whether he was picked
+   * to open or arrived there because the top order fell over.
+   */
+  opener?: boolean
   bowlType?: BowlType
   /**
    * 0-100. How much the player does with a new ball. Boosts ATT (and, less so,

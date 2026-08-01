@@ -60,8 +60,15 @@ Every player carries four numbers, all 0-100, all centred so that
 A fifth, optional rating sits on top: **`SWING`**, what a bowler does with a new
 ball. It lifts ATT sharply and DEF a little for the first twelve overs and then
 fades to nothing, so a swing bowler held back to first change has wasted his
-best asset. Archie Graham, Derek Budd and Jack Brown have it. Opening with them
-rather than holding them back is worth roughly **8 runs an innings**.
+best asset. Archie Graham, Derek Budd and Jack Brown have it. Giving the new ball
+to two stock seamers instead of your swing pair costs roughly **13 runs an
+innings**.
+
+And a flag rather than a rating: **`OPENER`**, meaning he can see off the new
+ball. Whoever is facing in the first dozen overs *without* it carries about a
+third more risk, fading as the shine goes — and it applies to whoever is at the
+crease, not to slots one and two, so losing both openers cheaply exposes your
+number four whether you planned it or not.
 
 Every ball resolves both duels: SKILL against ATT decides whether the batter
 survives, PWR against DEF decides how many runs come. That makes the two
@@ -98,8 +105,8 @@ literally identical innings — and now it decides when he's worth having:
 
 | per over | powerplay | middle | death |
 |---|---|---|---|
-| **pace** | 4.75 econ · 0.20 wkts | 5.14 · 0.11 | 5.85 · 0.24 |
-| **spin** | 5.40 econ · 0.17 wkts | **4.83 · 0.16** | 6.92 · 0.21 |
+| **pace** | 4.06 econ · 0.19 wkts | 4.45 · 0.11 | 4.88 · 0.27 |
+| **spin** | 4.75 econ · 0.14 wkts | **4.11 · 0.17** | 5.93 · 0.20 |
 
 A seamer owns the new ball and the death and leaks through the middle once the
 shine has gone. A spinner is the opposite: carted at either end, but through the
@@ -107,6 +114,13 @@ middle he's both cheaper *and* takes half again as many wickets — and he's the
 one who removes a **set** batter, because that's the man trying to hit over the
 top. Across a whole innings the two are within a couple of runs of each other,
 so this is about when you bowl someone, not who's better.
+
+Together with swing, that's what makes the bowling plan a decision. A good
+deployment — swing on the new ball, spin squeezing the middle, your strike
+bowlers at the death — is worth about **14 runs** against filling the boxes
+best-bowler-first, and a single call like opening with the spinner costs **18**.
+It used to be two and a half runs for the whole screen, which is why the plan
+screen was rebuilt twice before anyone noticed the problem wasn't the interface.
 
 Rough guide for a Surrey Championship side:
 
@@ -134,6 +148,7 @@ make the side:
   role: 'Spin all-rounder',               // the club's own label
   bowlType: 'spin',
   swing: 0,                               // optional — new-ball movement
+  opener: false,                          // optional — can face the new ball
   bat:  { skill: 79, pwr: 93 },
   bowl: { def: 81, att: 76 },
 }
@@ -142,8 +157,13 @@ make the side:
 One field isn't in the source table: **`bowlType`**, set to `spin` for the spin
 roles and `pace` otherwise.
 
-There is **no preferred batting position** — bat anyone anywhere. What you do
-need to watch is that everyone you pick gets a go; see fresh air games below.
+There is **no preferred batting position** — bat anyone anywhere. The one
+exception is the top of the order: five players are marked `opener` (Grinstead,
+Doyle, Funnell, Michael Davis and Gandhi), which is a guess from the ratings and
+the role labels rather than anything the club told me. **Correct them** with the
+`OPENER` toggle on the squad screen. Five are marked rather than two so a couple
+of Saturday absences can't leave you without one. What you also need to watch is
+that everyone you pick gets a go; see fresh air games below.
 
 A rating **below 20 in either DEF or ATT means the player doesn't bowl**, so the
 1s against the specialist batters keep them out of the attack. Whoever is
@@ -172,7 +192,12 @@ Anyone since dropped from the squad or unavailable simply isn't there.
    rather than filled with silent replacements. Reorder with the `▲▼` arrows, or
    tap two names to swap them outright. Anyone unavailable is hidden by default
    — one toggle brings them back if you want to see what you're missing. You
-   need a keeper and at least five who can bowl, and `AUTO` picks a legal side.
+   need a keeper and at least five who can bowl. Openers carry an `OP` next to
+   their name, and the screen says so if you've pushed someone up who isn't one.
+   `AUTO` picks a legal side that also has a **shape**: a keeper, two new-ball
+   bowlers, a spinner, five bowlers all told, and two openers. Ranking on raw
+   bowling index instead — which is what it used to do — hands you five seamers
+   and no spinner, and half the bowling plan stops existing.
 2. **The attack** — say how many overs each bowler gets in each third of the
    innings: **new ball, middle, death**. Three numbers per man. Each window has
    to come out exact — 9, 26 and 10 — so the panel at the top turns green only
@@ -379,11 +404,11 @@ roughly a third turn up with nothing, one in six is unplayable that day.
 looks like 45-over club cricket rather than a video game. Current numbers:
 
 ```
-median first innings   174        run rate            4.05
-10th / 90th pct        122 / 215  wickets lost        7.70
-all-out rate           39.8%      extras             11.7
-ducks per innings      0.99       fifties per innings 0.71
-mean top score         55.8       hundreds/innings    0.04
+median first innings   171        run rate            3.97
+10th / 90th pct        110 / 212  wickets lost        7.96
+all-out rate           45.4%      extras             11.3
+ducks per innings      1.23       fifties per innings 0.73
+mean top score         55.9       hundreds/innings    0.05
 ```
 
 These are measured **par club against par club**, never against Bagshot — so
@@ -395,8 +420,9 @@ number for a decent standard and far too rich for this league: only a fifth of
 innings landed in the 160-200 band and a quarter cleared 250. Boundaries took
 most of the cut — village outfields are slow and the ropes are long, so runs
 come in ones far more than in fours. Playing the real Div 6 West clubs against
-each other now gives a median of 178, with **48% of innings between 160 and
-200** and 250-plus down from a quarter of all innings to one in a hundred.
+each other now gives a median of 168, with **42% of innings between 160 and
+200** and 250-plus down from a quarter of all innings to one in a hundred and
+fifty.
 
 It also checks that better ratings win more often, that no bowler exceeds nine
 overs or bowls consecutively, that lopsided allocations can't produce an
@@ -437,7 +463,18 @@ matching the summary — the crease snapshot can never show a batter who is
 already out, and the rota preview on the plan screen has to name the bowler who
 really bowls each over. A preview that lied would be worse than no preview.
 
-All 54 checks pass.
+Newest are the ones that would have caught the attack screen being decorative:
+**deployment has to be worth having** — a good plan against a thoughtless one,
+same five bowlers, only the windows differing — and **pace and spin have to stay
+level** across a whole innings, so widening the phase table can never quietly
+make one type flatly better and collapse the plan into "pick the good bowlers".
+Nothing in the suite noticed the first problem, which is how it survived two
+rebuilds of the screen. Alongside them, six checks on the shape of the suggested
+XI, and two on openers: pushing a non-opener up has to cost runs, and marking the
+*tail* as openers has to change nothing at all — otherwise the penalty has become
+a flat tax on not being an opener rather than a new ball a specialist sees off.
+
+All 77 checks pass.
 
 The mirror-match check plays a side against itself: the chasing side wins 55.5%,
 in line with real limited-overs cricket, where knowing the target is worth

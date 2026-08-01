@@ -5,7 +5,7 @@ import type {
 } from '../data/types'
 import {
   clamp, duel, makeBatterState, makeBowlerState, swingBoost,
-  RUNS_DAMPING, WICKET_DAMPING,
+  RUNS_DAMPING, SWING_WINDOW, WICKET_DAMPING,
 } from './ratings'
 import type { BatterState, BowlerState } from './ratings'
 import { autoIntent } from './ai'
@@ -59,7 +59,12 @@ export interface InningsInput {
 // like. Boundaries took most of the cut — village outfields are slow, the
 // ropes are long, and runs come in ones far more than in fours.
 //
-// Median first innings ~177, middle half 150-200. See scripts/bench.mjs.
+// Median first innings ~171, middle half 145-200. See scripts/bench.mjs.
+//
+// `wicket` came down from 0.0235 when the new ball was made to matter. The
+// swing boost and the non-opener penalty both add wickets in the first dozen
+// overs; this pays for them, so the total falling across an innings is
+// unchanged and only *when* they fall has moved.
 
 const BASE = {
   one: 0.270,
@@ -67,7 +72,7 @@ const BASE = {
   three: 0.006,
   four: 0.050,
   six: 0.0092,
-  wicket: 0.0235,
+  wicket: 0.0212,
 } as const
 
 const PHASE = {
@@ -88,19 +93,29 @@ const PHASE = {
  *          spinner — squeezes hard through the middle, and is a liability once
  *          the batters start swinging at the end
  *
- * Roughly balanced across a whole innings, so this changes *when* a bowler is
- * worth having rather than making one type flatly better.
+ * Roughly balanced across a whole innings — an all-pace and an all-spin attack
+ * on identical ratings concede within a couple of runs of each other — so this
+ * changes *when* a bowler is worth having rather than making one type flatly
+ * better. The bench guards that; widening these numbers without checking it is
+ * how you accidentally make spin strictly worse and delete half the decision.
+ *
+ * The amplitude here is deliberately large. Narrow versions of this table and of
+ * `swingBoost` were most of why the bowling plan didn't matter: a good
+ * deployment beat a thoughtless one by two and a half runs, so the screen with
+ * the most controls in the game governed about 1% of an innings. It's about
+ * fourteen runs now, and getting a single call wrong — opening with the spinner,
+ * holding the swing bowlers back — costs between seven and eighteen.
  */
 const TYPE = {
   pace: {
-    powerplay: { boundary: 0.94, wicket: 1.12 },
-    middle: { boundary: 1.06, wicket: 0.93 },
-    death: { boundary: 0.94, wicket: 1.13 },
+    powerplay: { boundary: 0.90, wicket: 1.20 },
+    middle: { boundary: 1.10, wicket: 0.90 },
+    death: { boundary: 0.92, wicket: 1.16 },
   },
   spin: {
-    powerplay: { boundary: 1.22, wicket: 0.84 },
-    middle: { boundary: 0.92, wicket: 1.10 },
-    death: { boundary: 1.30, wicket: 0.84 },
+    powerplay: { boundary: 1.28, wicket: 0.82 },
+    middle: { boundary: 0.90, wicket: 1.14 },
+    death: { boundary: 1.38, wicket: 0.80 },
   },
 } as const
 
@@ -112,6 +127,22 @@ const TYPE = {
  */
 const SET_AT_BALLS = 30
 const SET_WICKET = { pace: -0.06, spin: 0.20 } as const
+
+/**
+ * What it costs to face the new ball without being an opener.
+ *
+ * Seeing off the shine is a different discipline from batting in the middle
+ * overs, and a middle-order player pushed up carries about a third more risk in
+ * the first over of it. Fades on the same twelve-over curve as the swing itself.
+ *
+ * Deliberately applied to *whoever is facing*, not to slots one and two — lose
+ * both openers cheaply and your number four is exposed to the new ball whether
+ * you planned it that way or not, which is exactly what happens on a Saturday.
+ */
+const NON_OPENER_RISK = 0.35
+
+/** How new the ball still is, 1 at the start and 0 once the shine has gone. */
+const newBallShine = (over: number) => clamp(1 - (over - 1) / SWING_WINDOW, 0, 1)
 
 /**
  * What an instruction is actually worth to the man carrying it out.
@@ -259,6 +290,8 @@ export function simulateInnings(input: InningsInput): InningsResult {
     const swing = swingBoost(bowler.player.swing, over)
     const effAtt = bowler.att * swing.att
     const effDef = bowler.def * swing.def
+    // How much of the new ball is left, for the non-opener penalty below.
+    const shine = newBallShine(over)
     let ballsThisOver = 0
     let runsThisOver = 0
     let wktsThisOver = 0
@@ -330,8 +363,13 @@ export function simulateInnings(input: InningsInput): InningsResult {
       const setBy = clamp(faced / SET_AT_BALLS, 0, 1)
       const setWicket = 1 + SET_WICKET[kind] * setBy
 
+      // Facing the new ball is a specialist's job. Anyone else is out of his
+      // depth until it stops doing anything.
+      const newBall = batter.player.opener ? 1 : 1 + NON_OPENER_RISK * shine
+
       let pWicket =
-        BASE.wicket * wicketFactor * phase.wicket * type.wicket * aggWicket * settleWicket * setWicket
+        BASE.wicket * wicketFactor * phase.wicket * type.wicket * aggWicket * settleWicket
+        * setWicket * newBall
       let pFour = BASE.four * runsFactor * phase.boundary * type.boundary * aggBoundary * settleRuns
       let pSix =
         BASE.six * Math.pow(runsFactor, 1.15) * phase.boundary * type.boundary * aggBoundary * settleRuns

@@ -31,7 +31,7 @@ const {
   BAGSHOT_SQUAD, OPPOSITION, RULES, DIV6_WEST, BAGSHOT_REAL_POSITION,
   simulateMatch, simulateFieldingInnings, simulateBattingInnings, buildMatchResult,
   autoPlan, autoBattingOrder, autoSelectXI, buildRota, validatePlan, makeRng,
-  allocatedOvers, windowOf, intentEffect, intentPush, autoIntent,
+  allocatedOvers, windowOf, windowSize, windowCap, intentEffect, intentPush, autoIntent,
   createSeason, nextFixture, recordRound, standings, seasonComplete,
   dlsPar, resources, swingBoost, SWING_WINDOW,
   initialAvailability, rollRound, availablePlayers, unavailableMap, availabilityRate,
@@ -408,12 +408,199 @@ check('all out spends every resource', dlsPar(200, 90, 10, 120).par, 200, 200, (
 
 // ----------------------------------------------------------- swing bowling
 
+// The band is wide on purpose. A narrow one here was quietly holding the new
+// ball down to a rounding error, which is most of why the bowling plan didn't
+// matter: with nothing to gain from opening with your swing bowler, the screen
+// was thirty controls governing 1.4% of an innings.
 console.log('\n\x1b[1mSwing\x1b[0m')
 const swingEarly = swingBoost(85, 1).att
 const swingLate = swingBoost(85, SWING_WINDOW + 1).att
-check('new ball boosts the attack', swingEarly, 1.3, 1.7, (v) => v.toFixed(3))
+check('new ball boosts the attack', swingEarly, 1.65, 2.10, (v) => v.toFixed(3))
 check('gone by the end of the window', swingLate, 1, 1, (v) => v.toFixed(3))
 check('no swing rating, no boost', swingBoost(undefined, 1).att, 1, 1, (v) => v.toFixed(3))
+
+// ------------------------------------------------- the bowling plan matters
+//
+// The one this suite was missing. The attack screen was rebuilt twice on the
+// assumption its problem was the interface; nothing here noticed that a good
+// deployment and a thoughtless one differed by two and a half runs, so the
+// screen kept being decorative and nothing failed.
+//
+// Same five bowlers in every plan — only *when* they bowl changes. Letting the
+// plans pick different bowlers would measure selection instead, which is worth
+// far more and would hide exactly the problem this is here to catch.
+
+console.log('\n\x1b[1mThe bowling plan\x1b[0m')
+
+const planAttack = (() => {
+  const pool = BAGSHOT_XI.filter((p) => p.bowl.def >= 20 && p.bowl.att >= 20 && !p.wk)
+  const rank = (f) => [...pool].sort((a, b) => f(b) - f(a))
+  const five = [
+    ...rank((p) => p.swing ?? 0).slice(0, 2),
+    rank((p) => (p.bowlType === 'spin' ? 1000 : 0) + p.bowl.def + p.bowl.att)[0],
+  ]
+  for (const p of rank((p) => p.bowl.def + p.bowl.att)) {
+    if (five.length >= 5) break
+    if (!five.includes(p)) five.push(p)
+  }
+  return five
+})()
+
+/**
+ * Deal each window out to a preference order, respecting every cap.
+ *
+ * Scarce windows first, exactly as `autoPlan` does — the new ball and the death
+ * are nine and ten overs with a five-over ceiling apiece, and filling in innings
+ * order lets the middle swallow everyone's allowance and leaves nobody able to
+ * bowl at the end.
+ */
+const dealPlan = (prefs) => {
+  const overs = new Map(planAttack.map((p) => [p.id, { newBall: 0, middle: 0, death: 0 }]))
+  const total = (id) => allocatedOvers({ overs: overs.get(id) })
+  for (const w of ['death', 'newBall', 'middle']) {
+    let left = windowSize(w)
+    for (const p of [...prefs[w], ...planAttack]) {
+      if (left <= 0) break
+      const room = Math.min(
+        windowCap(w) - overs.get(p.id)[w], RULES.maxOversPerBowler - total(p.id), left,
+      )
+      if (room > 0) { overs.get(p.id)[w] += room; left -= room }
+    }
+    if (left > 0) return null
+  }
+  return planAttack.map((p) => ({ playerId: p.id, overs: overs.get(p.id) }))
+}
+
+const rankBy = (f) => [...planAttack].sort((a, b) => f(b) - f(a))
+const seamFirst = rankBy((p) => (p.bowlType === 'spin' ? 0 : 1000) + p.bowl.att)
+const spinFirst = rankBy((p) => (p.bowlType === 'spin' ? 1000 : 0) + p.bowl.def)
+const swingFirst = rankBy((p) => (p.swing ?? 0) * 10 + p.bowl.att)
+
+// Swing takes the new ball, spin squeezes the middle, the strike bowlers finish.
+const goodPlan = dealPlan({
+  newBall: swingFirst.filter((p) => p.bowlType !== 'spin'),
+  middle: spinFirst,
+  death: seamFirst,
+})
+// Nobody thought about it: every window filled best-bowler-first on raw index,
+// type and swing ignored. That is the realistic bad plan rather than a
+// pathological one — it's what you get from filling the boxes without a reason,
+// and it buries the swing bowlers in the middle overs.
+const byIndex = rankBy((p) => p.bowl.def + p.bowl.att)
+const naivePlan = dealPlan({ newBall: byIndex, middle: byIndex, death: byIndex })
+
+const concede = (plan) => {
+  const totals = []
+  for (let i = 0; i < 800; i++) {
+    totals.push(
+      simulateFieldingInnings(evenOpponents[i % evenOpponents.length], BAGSHOT_XI, plan, i * 7919 + 11).runs,
+    )
+  }
+  return mean(totals)
+}
+
+if (!goodPlan || !naivePlan
+    || validatePlan(goodPlan, BAGSHOT_XI).length || validatePlan(naivePlan, BAGSHOT_XI).length) {
+  check('deployment is worth having', 0, 12, 40, (v) => v.toFixed(1))
+  console.log('  \x1b[90mcould not build a legal pair of plans to compare\x1b[0m')
+} else {
+  check('deployment is worth having', concede(naivePlan) - concede(goodPlan), 8, 30, (v) => v.toFixed(1))
+}
+
+// ...and it must stay a question of *when*, not *who*. If widening the phase
+// table ever makes one type flatly better, the plan collapses into "pick the
+// good bowlers" and the windows stop meaning anything.
+const flatPlan = planAttack.map((p, i) => ({
+  playerId: p.id,
+  overs: { newBall: i < 4 ? 2 : 1, middle: i < 4 ? 5 : 6, death: 2 },
+}))
+const asType = (type) => {
+  const xi = BAGSHOT_XI.map((p) =>
+    (planAttack.includes(p) ? { ...p, bowlType: type, swing: undefined } : p))
+  const totals = []
+  for (let i = 0; i < 800; i++) {
+    totals.push(simulateFieldingInnings(evenOpponents[i % evenOpponents.length], xi, flatPlan, i * 7919 + 11).runs)
+  }
+  return mean(totals)
+}
+check('pace and spin stay level', Math.abs(asType('pace') - asType('spin')), 0, 8, (v) => v.toFixed(1))
+
+// ------------------------------------------------------------- opening batters
+
+console.log('\n\x1b[1mOpening the batting\x1b[0m')
+
+const openOrder = autoBattingOrder(BAGSHOT_XI)
+check('AUTO opens with two openers', openOrder.slice(0, 2).filter((p) => p.opener).length, 2, 2, (v) => v)
+
+const batOut = (order) => {
+  const totals = []
+  for (let i = 0; i < 800; i++) {
+    // An unreachable target, so they bat the full 45 and the whole cost shows.
+    totals.push(simulateBattingInnings(evenOpponents[i % evenOpponents.length], order, 999, i * 7919 + 11).runs)
+  }
+  return mean(totals)
+}
+// Identical players, identical order — the only difference is whether the top
+// two are built for the new ball.
+const stripped = openOrder.map((p, i) => (i < 2 ? { ...p, opener: false } : p))
+check('opening with the wrong men costs runs', batOut(openOrder) - batOut(stripped), 3, 20, (v) => v.toFixed(1))
+
+// ...and it has to be the *new ball* doing it, not a flat penalty on the top
+// two. The damage has to be done by the time the shine goes; after that a
+// non-opener is simply a batter and the two sides must lose wickets at the same
+// rate. Measured as wickets down at the end of the swing window against wickets
+// down across the rest of the innings.
+const wktsBy = (order, over) => {
+  let early = 0
+  for (let i = 0; i < 800; i++) {
+    const r = simulateBattingInnings(evenOpponents[i % evenOpponents.length], order, 999, i * 7919 + 11)
+    const at = r.overSummaries.find((o) => o.over === over)
+    early += at ? at.totalWkts : r.wickets
+  }
+  return early / 800
+}
+check(
+  'the new ball is what does it',
+  wktsBy(stripped, SWING_WINDOW) - wktsBy(openOrder, SWING_WINDOW), 0.10, 1.20,
+  (v) => v.toFixed(2) + ' wkts',
+)
+
+// ...and it is gone once the shine is. Marking the *tail* as openers must do
+// nothing at all: they arrive long after the twelfth over, so if this moves,
+// the penalty has become a flat tax on not being an opener rather than a new
+// ball a specialist sees off. Comparing the top two before and after can't tell
+// those apart — losing an extra early wicket cascades through the rest of the
+// innings whichever mechanism caused it.
+const tailMarked = openOrder.map((p, i) => (i >= 7 ? { ...p, opener: true } : p))
+check(
+  '...and it is gone once the shine is',
+  Math.abs(batOut(tailMarked) - batOut(openOrder)), 0, 2.5, (v) => v.toFixed(1) + ' runs',
+)
+
+// ------------------------------------------------------ a balanced auto XI
+
+console.log('\n\x1b[1mThe suggested XI\x1b[0m')
+
+let noKeeper = 0, tooFew = 0, noSpin = 0, noOpeners = 0, noNewBall = 0, wrongSize = 0
+for (let i = 0; i < 60; i++) {
+  // Squads of every awkward shape, including ones with no spinner at all.
+  const squad = BAGSHOT_SQUAD.slice(0, 11 + (i % 17))
+  if (squad.length < 11) continue
+  const xi = autoSelectXI(squad)
+  const attack = xi.filter((p) => p.bowl.def >= 20 && p.bowl.att >= 20 && !p.wk)
+  if (xi.length !== 11) wrongSize++
+  if (squad.some((p) => p.wk) && !xi.some((p) => p.wk)) noKeeper++
+  if (attack.length < RULES.minBowlers) tooFew++
+  if (squad.some((p) => p.bowlType === 'spin') && !attack.some((p) => p.bowlType === 'spin')) noSpin++
+  if (squad.filter((p) => p.opener).length >= 2 && xi.filter((p) => p.opener).length < 2) noOpeners++
+  if (squad.some((p) => p.swing) && !attack.some((p) => p.swing)) noNewBall++
+}
+check('always eleven', wrongSize, 0, 0, (v) => v)
+check('always a keeper', noKeeper, 0, 0, (v) => v)
+check('always five bowlers', tooFew, 0, 0, (v) => v)
+check('always a spinner', noSpin, 0, 0, (v) => v)
+check('always someone for the new ball', noNewBall, 0, 0, (v) => v)
+check('always two openers', noOpeners, 0, 0, (v) => v)
 
 // ------------------------------------------------------------ season shape
 

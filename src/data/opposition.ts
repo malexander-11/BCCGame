@@ -70,21 +70,27 @@ const CLUBS: ClubSeed[] = [
 interface Archetype {
   skill: number; pwr: number; def: number; att: number
   wk?: boolean
+  opener?: boolean
   bowlType?: 'pace' | 'spin'
+  /** What he does with a new ball. Every club has a couple who swing it. */
+  swing?: number
 }
 
+// Every club has an opening pair: the two who can see off the new ball rather
+// than the two who score fastest. Without these, every opposition side would
+// carry the non-opener penalty at the top and post nothing.
 const SHAPE: Archetype[] = [
-  { skill: 70, pwr: 60, def: 0, att: 0 },
-  { skill: 65, pwr: 70, def: 0, att: 0 },
-  { skill: 73, pwr: 63, def: 48, att: 42, bowlType: 'spin' },
+  { skill: 70, pwr: 60, def: 0, att: 0, opener: true },
+  { skill: 65, pwr: 70, def: 0, att: 0, opener: true },
+  { skill: 73, pwr: 63, def: 48, att: 42, bowlType: 'spin', opener: true },
   { skill: 69, pwr: 72, def: 0, att: 0 },
   { skill: 62, pwr: 77, def: 55, att: 50, bowlType: 'pace' },
   { skill: 63, pwr: 68, def: 67, att: 65, bowlType: 'pace' },
   { skill: 58, pwr: 65, def: 0, att: 0, wk: true },
   { skill: 52, pwr: 60, def: 72, att: 69, bowlType: 'spin' },
-  { skill: 42, pwr: 54, def: 70, att: 78, bowlType: 'pace' },
+  { skill: 42, pwr: 54, def: 70, att: 78, bowlType: 'pace', swing: 76 },
   { skill: 36, pwr: 47, def: 77, att: 71, bowlType: 'pace' },
-  { skill: 27, pwr: 42, def: 65, att: 79, bowlType: 'pace' },
+  { skill: 27, pwr: 42, def: 65, att: 79, bowlType: 'pace', swing: 64 },
 ]
 
 const FIRST = [
@@ -135,7 +141,9 @@ function buildXI(club: ClubSeed): Player[] {
       name,
       value,
       wk: a.wk,
+      opener: a.opener,
       bowlType: a.bowlType,
+      swing: a.swing ? rate(a.swing) : undefined,
       bat,
       bowl,
     }
