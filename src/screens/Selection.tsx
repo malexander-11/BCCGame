@@ -5,8 +5,8 @@ import { availableBowlers } from '../engine/ratings'
 import { formBand } from '../engine/form'
 import { theme } from '../theme'
 import {
-  availabilityColour, Eyebrow, GhostButton, Notice, PlayerMarks, PrimaryButton,
-  ScreenHeader, StatBar, StickyFooter, roleColour, roleOf,
+  ConfirmButton, Eyebrow, GhostButton, Notice, PlayerMarks, PrimaryButton,
+  ScreenHeader, StatBar, StickyFooter, availabilityColour, roleColour, roleOf,
 } from '../components/ui'
 
 export interface SelectionIssue { message: string }
@@ -36,12 +36,35 @@ const SORTS: [Sort, string][] = [
   ['form', 'FORM'], ['batting', 'BAT'], ['bowling', 'BWL'], ['avail', 'AVL'], ['value', '£'],
 ]
 
+/**
+ * The half-finished half of a swap.
+ *
+ * Every change to the side is two taps: pick a man up — off the team sheet or
+ * out of the squad — then tap where he goes or who he replaces. Both directions
+ * work, so you can start from either end of the swap you have in mind.
+ */
+type Held =
+  | { from: 'xi'; index: number }
+  | { from: 'squad'; player: Player }
+
+/** One line of the team sheet: a man, or a place in the order nobody has yet. */
+interface Slot {
+  p: Player | null
+  /** Where he sits in the XI array. -1 for an empty slot. */
+  i: number
+  /** Where a man tapped into this slot would be spliced into the XI. */
+  at: number
+  /** True for the slot left open by dropping someone, as opposed to the tail. */
+  open: boolean
+}
+
 const batIndex = (p: Player) => 0.62 * p.bat.skill + 0.38 * p.bat.pwr
 const bowlIndex = (p: Player) => 0.5 * p.bowl.def + 0.5 * p.bowl.att
 const availOf = (p: Player) => p.availability ?? DEFAULT_AVAILABILITY
+const firstName = (p: Player) => p.name.split(' ')[0]
 
 export function Selection({
-  squad, opponent, selected, unavailable, forms, onToggle, onReorder, onAuto, onBack, onNext,
+  squad, opponent, selected, unavailable, forms, onSetXI, onAuto, onBack, onNext,
 }: {
   squad: Player[]
   opponent: Club
@@ -50,9 +73,9 @@ export function Selection({
   unavailable?: Map<string, string>
   /** Tracked season form by player id. Absent in a friendly. */
   forms?: Record<string, number>
-  onToggle: (p: Player) => void
-  /** The XI *is* the batting order, so reordering is reordering the array. */
-  onReorder: (order: Player[]) => void
+  /** The XI *is* the batting order, so every change — picking, dropping,
+   *  swapping, reordering — is just handing back the new array. */
+  onSetXI: (xi: Player[]) => void
   onAuto: () => void
   onBack: () => void
   onNext: () => void
@@ -61,31 +84,13 @@ export function Selection({
   const [pickedOnly, setPickedOnly] = useState(false)
   /** Hide players who can't play this week. On by default when there are any. */
   const [availableOnly, setAvailableOnly] = useState(true)
-  /** Slot currently picked up, waiting for somewhere to go. */
-  const [held, setHeld] = useState<number | null>(null)
-
-  const swap = (i: number) => {
-    if (held === null) { setHeld(i); return }
-    if (held === i) { setHeld(null); return }
-    const next = [...selected]
-    const a = next[held]
-    next[held] = next[i]
-    next[i] = a
-    onReorder(next)
-    setHeld(null)
-  }
-
-  /** Nudge a player one place up or down the order. */
-  const shift = (i: number, by: -1 | 1) => {
-    const j = i + by
-    if (j < 0 || j >= selected.length) return
-    const next = [...selected]
-    const a = next[i]
-    next[i] = next[j]
-    next[j] = a
-    onReorder(next)
-    setHeld(null)
-  }
+  const [held, setHeld] = useState<Held | null>(null)
+  /**
+   * The place in the order last vacated. Dropping a man leaves his slot open
+   * rather than closing the ranks, so whoever you pick next walks in at three
+   * instead of arriving at eleven and needing eight taps to get back.
+   */
+  const [gap, setGap] = useState<number | null>(null)
 
   const out = unavailable ?? new Map<string, string>()
   const ids = useMemo(() => new Set(selected.map((p) => p.id)), [selected])
@@ -95,6 +100,89 @@ export function Selection({
   const keeper = selected.some((p) => p.wk)
   // Whoever is walking out first without the credentials for it.
   const exposed = selected.slice(0, 2).filter((p) => !p.opener)
+
+  // A held slot can't outlive the man in it; every change clears the hold, but
+  // AUTO and CLEAR come from outside so guard the read anyway.
+  const holding = held?.from === 'xi' && held.index >= selected.length ? null : held
+  const heldMan = holding?.from === 'xi' ? selected[holding.index] : null
+  const arming = holding?.from === 'squad' ? holding.player : null
+
+  /** Where an unheld pick lands: the open slot if there is one, else the tail. */
+  const landing = gap !== null && selected.length < 11
+    ? Math.min(gap, selected.length)
+    : selected.length
+
+  const sheet = useMemo<Slot[]>(() => {
+    const open = gap !== null && selected.length < 11 ? Math.min(gap, selected.length) : -1
+    const rows: Slot[] = []
+    let i = 0
+    for (let slot = 0; slot < 11; slot += 1) {
+      if (slot === open || i >= selected.length) {
+        rows.push({ p: null, i: -1, at: i, open: slot === open })
+        continue
+      }
+      rows.push({ p: selected[i], i, at: i, open: false })
+      i += 1
+    }
+    return rows
+  }, [selected, gap])
+
+  /** Hand back a new XI and put the two-tap state back to rest. */
+  const set = (next: Player[], openAt: number | null = null) => {
+    onSetXI(next)
+    setGap(openAt)
+    setHeld(null)
+  }
+
+  const dropAt = (i: number) => set([...selected.slice(0, i), ...selected.slice(i + 1)], i)
+  const bringIn = (p: Player, at: number) => set([...selected.slice(0, at), p, ...selected.slice(at)])
+  const replaceAt = (i: number, p: Player) => set(selected.map((x, n) => (n === i ? p : x)))
+
+  const swapSlots = (a: number, b: number) => {
+    const next = [...selected]
+    const man = next[a]
+    next[a] = next[b]
+    next[b] = man
+    set(next, gap)
+  }
+
+  /** Nudge a player one place up or down the order. */
+  const shift = (i: number, by: -1 | 1) => {
+    const j = i + by
+    if (j < 0 || j >= selected.length) return
+    swapSlots(i, j)
+  }
+
+  const tapSlot = (row: Slot) => {
+    if (holding?.from === 'squad') {
+      if (row.p) replaceAt(row.i, holding.player)
+      else bringIn(holding.player, row.at)
+      return
+    }
+    if (holding?.from === 'xi') {
+      // A hole in the order isn't somewhere to bat, so tapping one puts him down.
+      if (!row.p) setHeld(null)
+      else if (holding.index === row.i) setHeld(null)
+      else swapSlots(holding.index, row.i)
+      return
+    }
+    if (row.p) setHeld({ from: 'xi', index: row.i })
+  }
+
+  const tapSquad = (p: Player) => {
+    const at = selected.findIndex((x) => x.id === p.id)
+    if (at >= 0) { dropAt(at); return }
+    if (holding?.from === 'xi') { replaceAt(holding.index, p); return }
+    if (holding?.from === 'squad') {
+      // Changed your mind about who's coming in — swap the armed man over.
+      setHeld(holding.player.id === p.id ? null : { from: 'squad', player: p })
+      return
+    }
+    if (selected.length < 11) { bringIn(p, landing); return }
+    // A full side. Rather than a tap that quietly does nothing, hold him ready
+    // and ask who he's coming in for.
+    setHeld({ from: 'squad', player: p })
+  }
 
   const listed = useMemo(() => {
     const rows = pickedOnly
@@ -121,6 +209,16 @@ export function Selection({
         return then((a, b) => batIndex(b) - batIndex(a))
     }
   }, [squad, sort, pickedOnly, availableOnly, ids, out, forms])
+
+  const prompt = arming
+    ? `${arming.name} is ready — tap the man he comes in for.`
+    : heldMan
+      ? `${firstName(heldMan)} is up — tap where he should bat, or tap his replacement below.`
+      : gap !== null && selected.length < 11
+        ? `Number ${landing + 1} is open — tap whoever should bat there.`
+        : selected.length === 0
+          ? 'Tap names below to pick your side. They bat in the order you add them.'
+          : 'Tap a man on the sheet to move him or swap him out. ✕ drops him.'
 
   return (
     <div className="pt-6 pb-4 pop">
@@ -155,96 +253,149 @@ export function Selection({
             {bowlers}<span style={{ color: theme.faint }}> / {RULES.minBowlers} min</span>
           </div>
         </div>
-        <GhostButton onClick={onAuto} className="!px-4">AUTO</GhostButton>
+        <GhostButton
+          onClick={() => { onAuto(); setHeld(null); setGap(null) }}
+          className="!px-4"
+        >
+          AUTO
+        </GhostButton>
       </div>
 
-      <Eyebrow colour={theme.gold}>
-        YOUR XI · BATTING ORDER
-      </Eyebrow>
-      <div
-        className="rounded-xl overflow-hidden mb-3"
-        style={{ border: `1px solid ${selected.length === 11 ? theme.gold : theme.border}` }}
-      >
-        {selected.length === 0 ? (
-          <div className="px-3 py-4 text-[12px] text-center" style={{ color: theme.faint }}>
-            Tap players below to pick them. They bat in the order you add them.
-          </div>
-        ) : (
-          selected.map((p, i) => {
-            const holding = held === i
-            return (
-              <div
-                key={p.id}
-                className="flex items-stretch"
-                style={{
-                  background: holding
-                    ? 'rgba(233,185,73,.20)'
-                    : i % 2 ? 'rgba(255,255,255,.02)' : 'transparent',
-                  borderBottom: i < selected.length - 1 ? `1px solid ${theme.border}55` : 'none',
-                  outline: holding ? `1px solid ${theme.gold}` : 'none',
-                  outlineOffset: -1,
-                }}
-              >
-                <button
-                  onClick={() => swap(i)}
-                  className="text-left pl-3 pr-2 py-2 flex items-center gap-2.5 flex-1 min-w-0
-                             active:scale-[0.995] transition-all"
-                  style={{ minHeight: 44 }}
-                >
-                  <span
-                    className="disp num w-5 text-center text-[13px] font-bold shrink-0"
-                    style={{ color: holding ? theme.gold : theme.faint }}
-                  >
-                    {i + 1}
-                  </span>
-                  <span className="text-[13px] font-semibold truncate flex-1" style={{ color: holding ? theme.gold : theme.cream }}>
-                    {p.name}
-                    <PlayerMarks p={p} />
-                  </span>
-                  <span className="disp num text-[10px] shrink-0" style={{ color: theme.faint }}>
-                    {p.bat.skill}/{p.bat.pwr}
-                  </span>
-                </button>
-
-                {/* One place at a time. Tap-to-swap above still handles long moves. */}
-                <div className="flex shrink-0">
-                  {([[-1, '▲', 'up'], [1, '▼', 'down']] as const).map(([by, glyph, word]) => (
-                    <button
-                      key={word}
-                      onClick={() => shift(i, by)}
-                      disabled={by === -1 ? i === 0 : i === selected.length - 1}
-                      aria-label={`Move ${p.name} ${word} the order`}
-                      className="disp text-[11px] w-9 flex items-center justify-center
-                                 active:scale-90 transition-transform disabled:opacity-25"
-                      style={{ color: theme.muted, borderLeft: `1px solid ${theme.border}55` }}
-                    >
-                      {glyph}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )
-          })
+      <div className="flex items-start justify-between gap-2">
+        <Eyebrow colour={theme.gold}>YOUR XI · BATTING ORDER</Eyebrow>
+        {selected.length > 0 && (
+          <ConfirmButton
+            confirmLabel="TAP AGAIN"
+            onConfirm={() => set([])}
+            className="!px-2.5 !py-1 !text-[10px] shrink-0"
+          >
+            CLEAR
+          </ConfirmButton>
         )}
       </div>
 
-      {selected.length > 0 && (
-        <div className="text-[11px] leading-snug mb-3 px-1" style={{ color: theme.muted }}>
-          {held === null
-            ? 'Tap a name above to move him, then tap where he should bat.'
-            : `Moving ${selected[held].name} — tap the slot he should take.`}
-          {exposed.length > 0 && (
-            <>
-              {' '}
-              <span style={{ color: theme.pitch }}>
-                {exposed.map((p) => p.name).join(' and ')}{' '}
-                {exposed.length > 1 ? "aren't openers" : "isn't an opener"} — the new ball will
-                be hard work for {exposed.length > 1 ? 'them' : 'him'}.
-              </span>
-            </>
-          )}
-        </div>
-      )}
+      <div
+        className="rounded-xl overflow-hidden mb-3 transition-all"
+        style={{
+          border: `1px solid ${arming ? theme.gold : selected.length === 11 ? theme.gold : theme.border}`,
+          boxShadow: arming ? '0 0 0 3px rgba(233,185,73,.12)' : 'none',
+        }}
+      >
+        {sheet.map((row, slot) => {
+          const p = row.p
+          const up = holding?.from === 'xi' && holding.index === row.i && p !== null
+          const stripe = slot % 2 ? 'rgba(255,255,255,.02)' : 'transparent'
+          const line = slot < 10 ? `1px solid ${theme.border}55` : 'none'
+
+          if (!p) {
+            return (
+              <button
+                key={`slot${slot}`}
+                onClick={() => tapSlot(row)}
+                disabled={!arming}
+                aria-label={arming ? `Bat ${arming.name} at ${slot + 1}` : `Number ${slot + 1} — nobody picked`}
+                className="w-full text-left px-3 py-2 flex items-center gap-2.5
+                           enabled:active:scale-[0.995] transition-all disabled:cursor-default"
+                style={{
+                  minHeight: 44,
+                  background: arming ? 'rgba(233,185,73,.10)' : stripe,
+                  borderBottom: line,
+                }}
+              >
+                <span
+                  className="disp num w-5 text-center text-[13px] font-bold shrink-0"
+                  style={{ color: arming ? theme.gold : row.open ? theme.pitch : theme.faint }}
+                >
+                  {slot + 1}
+                </span>
+                <span
+                  className="text-[12px] flex-1 truncate"
+                  style={{ color: arming ? theme.gold : row.open ? theme.pitch : theme.faint }}
+                >
+                  {arming
+                    ? `Bat ${arming.name} here`
+                    : row.open ? 'OPEN — pick a replacement' : '—'}
+                </span>
+              </button>
+            )
+          }
+
+          return (
+            <div
+              key={p.id}
+              className="flex items-stretch transition-all"
+              style={{
+                background: up ? 'rgba(233,185,73,.20)' : arming ? 'rgba(233,185,73,.05)' : stripe,
+                borderBottom: line,
+                outline: up ? `1px solid ${theme.gold}` : 'none',
+                outlineOffset: -1,
+              }}
+            >
+              <button
+                onClick={() => tapSlot(row)}
+                aria-label={arming ? `${arming.name} in for ${p.name}` : `${p.name}, batting ${slot + 1}`}
+                className="text-left pl-3 pr-1.5 py-2 flex items-center gap-2.5 flex-1 min-w-0
+                           active:scale-[0.995] transition-all"
+                style={{ minHeight: 44 }}
+              >
+                <span
+                  className="disp num w-5 text-center text-[13px] font-bold shrink-0"
+                  style={{ color: up ? theme.gold : theme.faint }}
+                >
+                  {slot + 1}
+                </span>
+                <span className="text-[13px] font-semibold truncate flex-1" style={{ color: up ? theme.gold : theme.cream }}>
+                  {p.name}
+                  <PlayerMarks p={p} />
+                </span>
+                <span className="disp num text-[10px] shrink-0" style={{ color: theme.faint }}>
+                  {p.bat.skill}/{p.bat.pwr}
+                </span>
+              </button>
+
+              {/* One place at a time. Tap-to-swap above still handles long moves. */}
+              <div className="flex shrink-0">
+                {([[-1, '▲', 'up'], [1, '▼', 'down']] as const).map(([by, glyph, word]) => (
+                  <button
+                    key={word}
+                    onClick={() => shift(row.i, by)}
+                    disabled={by === -1 ? row.i === 0 : row.i === selected.length - 1}
+                    aria-label={`Move ${p.name} ${word} the order`}
+                    className="disp text-[11px] w-8 flex items-center justify-center
+                               active:scale-90 transition-transform disabled:opacity-25"
+                    style={{ color: theme.muted, borderLeft: `1px solid ${theme.border}55` }}
+                  >
+                    {glyph}
+                  </button>
+                ))}
+                <button
+                  onClick={() => dropAt(row.i)}
+                  aria-label={`Drop ${p.name} from the XI`}
+                  className="disp text-[12px] w-8 flex items-center justify-center
+                             active:scale-90 transition-transform"
+                  style={{ color: theme.red, borderLeft: `1px solid ${theme.border}55` }}
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="text-[11px] leading-snug mb-3 px-1" style={{ color: arming || heldMan ? theme.gold : theme.muted }}>
+        {prompt}
+        {exposed.length > 0 && (
+          <>
+            {' '}
+            <span style={{ color: theme.pitch }}>
+              {exposed.map((p) => p.name).join(' and ')}{' '}
+              {exposed.length > 1 ? "aren't openers" : "isn't an opener"} — the new ball will
+              be hard work for {exposed.length > 1 ? 'them' : 'him'}.
+            </span>
+          </>
+        )}
+      </div>
 
       <div className="flex gap-1.5 mb-2">
         {SORTS.map(([s, label]) => (
@@ -277,12 +428,20 @@ export function Selection({
         )}
       </div>
 
-      <Eyebrow>
-        {pickedOnly
-          ? 'YOUR XI'
-          : `SQUAD · ${squad.length - out.size} AVAILABLE${out.size ? ` · ${out.size} OUT` : ''}`}
+      <Eyebrow colour={heldMan ? theme.gold : theme.pitch}>
+        {heldMan
+          ? `TAP A REPLACEMENT FOR ${heldMan.name.toUpperCase()}`
+          : pickedOnly
+            ? 'YOUR XI'
+            : `SQUAD · ${squad.length - out.size} AVAILABLE${out.size ? ` · ${out.size} OUT` : ''}`}
       </Eyebrow>
-      <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${theme.border}` }}>
+      <div
+        className="rounded-xl overflow-hidden transition-all"
+        style={{
+          border: `1px solid ${heldMan ? theme.gold : theme.border}`,
+          boxShadow: heldMan ? '0 0 0 3px rgba(233,185,73,.12)' : 'none',
+        }}
+      >
         {listed.length === 0 && (
           <div className="px-3 py-4 text-[12px] text-center" style={{ color: theme.faint }}>
             Nobody picked yet.
@@ -290,36 +449,47 @@ export function Selection({
         )}
         {listed.map((p, i) => {
           const on = ids.has(p.id)
+          const ready = arming?.id === p.id
           const role = roleOf(p)
           const missing = out.get(p.id)
           return (
             <button
               key={p.id}
-              onClick={() => { if (!missing) onToggle(p) }}
+              onClick={() => { if (!missing) tapSquad(p) }}
               disabled={!!missing}
+              aria-label={
+                missing ? `${p.name} — ${missing}`
+                  : on ? `Drop ${p.name}`
+                    : heldMan ? `${p.name} in for ${heldMan.name}`
+                      : `Pick ${p.name}`
+              }
               className="w-full text-left px-3 py-2.5 flex items-center gap-2 transition-all
                          enabled:active:scale-[0.995] disabled:cursor-not-allowed"
               style={{
-                background: on ? 'rgba(233,185,73,.10)' : i % 2 ? 'rgba(255,255,255,.02)' : 'transparent',
+                background: ready
+                  ? 'rgba(233,185,73,.20)'
+                  : on ? 'rgba(233,185,73,.10)' : i % 2 ? 'rgba(255,255,255,.02)' : 'transparent',
                 borderBottom: i < listed.length - 1 ? `1px solid ${theme.border}66` : 'none',
                 opacity: missing ? 0.45 : 1,
+                outline: ready ? `1px solid ${theme.gold}` : 'none',
+                outlineOffset: -1,
               }}
             >
               <div
                 className="w-5 h-5 rounded-md shrink-0 flex items-center justify-center disp text-[11px] font-bold"
                 style={{
-                  background: on ? theme.gold : 'transparent',
-                  border: `1px solid ${on ? theme.gold : theme.border}`,
+                  background: on || ready ? theme.gold : 'transparent',
+                  border: `1px solid ${on || ready ? theme.gold : theme.border}`,
                   color: missing ? theme.red : '#1A1405',
                 }}
               >
-                {missing ? '✕' : on ? '✓' : ''}
+                {missing ? '✕' : ready ? '→' : on ? '✓' : ''}
               </div>
 
               <div className="min-w-0 flex-1">
                 <div
                   className="text-[13.5px] font-semibold truncate"
-                  style={{ color: on ? theme.gold : theme.cream }}
+                  style={{ color: on || ready ? theme.gold : theme.cream }}
                 >
                   {p.name}
                   <PlayerMarks p={p} />

@@ -247,15 +247,6 @@ export default function App() {
     [inLeague, season],
   )
 
-  const toggle = useCallback((p: Player) => {
-    setXi((prev) => {
-      const has = prev.some((x) => x.id === p.id)
-      if (has) return prev.filter((x) => x.id !== p.id)
-      if (prev.length >= 11) return prev
-      return [...prev, p]
-    })
-  }, [])
-
   // Dropping a bowler from the XI must drop his overs too.
   useEffect(() => {
     setPlan((prev) => {
@@ -524,8 +515,7 @@ export default function App() {
             selected={xi}
             unavailable={unavailable}
             forms={forms}
-            onToggle={toggle}
-            onReorder={setXi}
+            onSetXI={setXi}
             onAuto={() => setXi(autoSelectXI(pickable))}
             onBack={() => setScreen(homeScreen)}
             onNext={() => {

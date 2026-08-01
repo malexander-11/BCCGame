@@ -246,8 +246,16 @@ Anyone since dropped from the squad or unavailable simply isn't there.
 1. **Selection** — eleven from the squad **in batting order**. The side you
    picked last week loads automatically, minus anyone now unavailable, so a
    settled team is a glance and a tap; gaps are left where players are missing
-   rather than filled with silent replacements. Reorder with the `▲▼` arrows, or
-   tap two names to swap them outright. Anyone unavailable is hidden by default
+   rather than filled with silent replacements. The team sheet is always eleven
+   slots, so a hole in the side has somewhere to live and is impossible to miss.
+   Every change is two taps and lands **in place**: pick a man up — off the sheet
+   or out of the squad — then tap where he bats or who he replaces. Both
+   directions work, so tapping a squad player when you already have eleven arms
+   him and asks who he's coming in for rather than quietly doing nothing.
+   Dropping someone with `✕` leaves his number open and the next man you pick
+   walks into it, instead of arriving at eleven and needing eight taps to get
+   back. `▲▼` still nudge one place at a time, and `CLEAR` empties the sheet if
+   you want to start again. Anyone unavailable is hidden by default
    — one toggle brings them back if you want to see what you're missing. You
    need a keeper and at least five who can bowl. Openers carry an `OP` next to
    their name, and the screen says so if you've pushed someone up who isn't one.
