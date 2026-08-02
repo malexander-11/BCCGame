@@ -114,8 +114,8 @@ export function updateForm(
  * A week without cricket. Everyone who didn't play goes a little stale.
  *
  * Nobody falls past RUST_FLOOR, and anyone already there stays put — you can't
- * get rustier than rusty, and a five-week injury shouldn't end a career. But
- * nor does sitting out ever *improve* anybody.
+ * get rustier than rusty, and a month on the sidelines after a fallout
+ * shouldn't end a career. But nor does sitting out ever *improve* anybody.
  */
 export function driftForm(current: number): number {
   if (current <= RUST_FLOOR) return current

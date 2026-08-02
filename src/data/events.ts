@@ -30,29 +30,32 @@ export const AWAY_REASONS: string[] = [
   'said yes in March and has now remembered why he shouldn’t have',
 ]
 
-export interface InjuryTemplate {
-  text: string
-  /** Rounds missed, inclusive range. */
-  min: number
-  max: number
-}
-
-export const INJURIES: InjuryTemplate[] = [
-  { text: 'has pulled a hamstring', min: 2, max: 4 },
-  { text: 'has a side strain', min: 3, max: 5 },
-  { text: 'rolled an ankle in the nets', min: 1, max: 3 },
-  { text: 'broke a finger keeping', min: 3, max: 6 },
-  { text: 'has gone in the back', min: 2, max: 4 },
-  { text: 'has torn a calf', min: 4, max: 6 },
-  { text: 'has done a shoulder diving in the deep', min: 3, max: 5 },
-  { text: 'did his knee playing five-a-side', min: 4, max: 7 },
-  { text: 'is in concussion protocol', min: 1, max: 2 },
-  { text: 'has a groin strain', min: 2, max: 4 },
-  { text: 'took one in the ribs and is bruised', min: 1, max: 3 },
-  { text: 'has tennis elbow, which he insists is from cricket', min: 2, max: 5 },
-  { text: 'has a stress fracture in the foot', min: 5, max: 8 },
-  { text: 'dislocated a thumb at slip', min: 2, max: 4 },
-  { text: 'tweaked an achilles running in', min: 2, max: 5 },
+/**
+ * Carrying a knock — one week, like everything else.
+ *
+ * Every line here has to read as a man who'll be fine by next Saturday, because
+ * that's exactly how long he's out. The long ones — stress fractures, torn
+ * calves, knees done at five-a-side — are gone, along with the multi-week
+ * ranges that used to come with them. A club side churns; it doesn't lose
+ * people for a month.
+ */
+export const INJURIES: string[] = [
+  'has a tight hamstring',
+  'has a side strain',
+  'rolled an ankle in the nets',
+  'jarred a finger keeping',
+  'has gone in the back',
+  'has a tight calf',
+  'has a sore shoulder after that throw from the deep',
+  'banged a knee playing five-a-side',
+  'is in concussion protocol',
+  'has a groin strain',
+  'took one in the ribs and is bruised',
+  'has tennis elbow, which he insists is from cricket',
+  'has a sore heel and is under orders to rest it',
+  'jammed a thumb at slip',
+  'tweaked an achilles running in',
+  'has a stiff neck and can barely look square',
 ]
 
 export interface FalloutTemplate {

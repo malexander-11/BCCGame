@@ -320,10 +320,18 @@ it. Every round:
 - **some have other plans** — a wedding, a stag do, work, "a long-standing golf
   booking". One week only, and rolled per player against his availability score
   (below).
-- **three to five are injured** — topped back up to that band each round, with
-  absences running one to eight weeks depending on what they've done.
+- **three to five are carrying a knock** — a tight hamstring, a jarred finger,
+  concussion protocol. **One week, same as everyone else**, and drawn fresh
+  each round rather than carried over, so it's three to five *different* men
+  every Saturday. Over a nine-round season about twenty of the twenty-seven
+  miss a game and none of them misses a season. Injuries used to run one to
+  eight weeks; losing a bowler until August was a punishment you had no answer
+  to, and it turned half the squad into spectators. A week out is a selection
+  problem, which is the game.
 - **occasionally somebody falls out with the club** — roughly twice a season,
-  and it always seems to be one of the good ones.
+  and it always seems to be one of the good ones. These are still the long
+  ones, two to eight weeks, and the only absence you actually wait on — so
+  they're the only ones the team-news feed announces a return for.
 
 ### The availability score
 
@@ -339,8 +347,8 @@ changes what a rating is worth: a brilliant 3/10 might win you two games a
 season, while a solid 9/10 is in your side every week and quietly worth more.
 
 The score covers **other plans only**. Injuries are rolled separately and ignore
-it entirely, because a torn hamstring doesn't care how keen anybody is — so your
-most reliable man can still be crocked for a month.
+it entirely, because a tight hamstring doesn't care how keen anybody is — so
+your most reliable man can still turn up crocked.
 
 Typically eight or nine of twenty-seven are missing on any given week, which is
 the point: you cannot pick the same eleven every week, so squad depth stops

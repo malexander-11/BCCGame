@@ -10,14 +10,19 @@ import type { Rng } from './rng'
  *
  * Three kinds of absence, deliberately different in shape:
  *
- *   away    one week only, rolled per player against his availability score
- *   injury  several weeks, topped up so three to five are always crocked
+ *   away    one week, rolled per player against his availability score
+ *   injury  one week, three to five of them, and the score has no say in it
  *   fallout rare, long, and it always seems to be somebody good
  *
  * Only `away` reads the availability score, and that is the point of the split:
- * keenness decides whether a fit player fancies it, but a torn hamstring does
+ * keenness decides whether a fit player fancies it, but a tight hamstring does
  * not care how keen he is. So your most reliable man can still be crocked, and
  * your 3-out-of-10 is a genuine gamble every single week.
+ *
+ * Injuries used to run one to eight weeks. They don't any more: a knock costs
+ * you one Saturday and he's back. Losing a bowler until August was a punishment
+ * you couldn't answer, and it made half the squad spectators — where a week out
+ * is a selection problem, which is the game.
  *
  * The result is that you cannot pick the same eleven every week. Squad depth
  * stops being decoration and selection becomes a real decision each round.
@@ -29,7 +34,7 @@ export interface Absence {
   playerId: string
   kind: Exclude<EventKind, 'return'>
   reason: string
-  /** First round they're available again. */
+  /** First round they're available again. Always `round + 1` for an injury. */
   until: number
 }
 
@@ -38,9 +43,9 @@ export interface SquadEvent {
   playerId: string
   playerName: string
   kind: EventKind
-  /** Rendered line, e.g. "Alex Dunnage has pulled a hamstring". */
+  /** Rendered line, e.g. "Alex Dunnage has a tight hamstring". */
   text: string
-  /** Rounds missed, for injuries and fallouts. */
+  /** Rounds missed. Only fallouts carry one — everything else is a week. */
   rounds?: number
 }
 
@@ -53,7 +58,7 @@ export interface AvailabilityState {
   log: SquadEvent[]
 }
 
-/** Injuries are topped up to this many at the start of every round. */
+/** How many of the squad are carrying something in any given week. */
 const INJURY_TARGET = { min: 3, max: 5 }
 /**
  * Scales every player's chance of having other plans.
@@ -120,10 +125,15 @@ export function rollRound(
   for (const a of previous.absences) {
     if (!byId.has(a.playerId)) continue        // dropped from the squad
     if (a.until <= round) {
-      add({
-        playerId: a.playerId, playerName: name(a.playerId),
-        kind: 'return', text: `${name(a.playerId)} ${pick(rng, RETURN_LINES)}`,
-      })
+      // A man back from a week's knock isn't news — he was only ever missing
+      // one Saturday, the same as everyone who was away. Fallouts are the
+      // absences you actually wait on, so they're the ones worth announcing.
+      if (a.kind !== 'injury') {
+        add({
+          playerId: a.playerId, playerName: name(a.playerId),
+          kind: 'return', text: `${name(a.playerId)} ${pick(rng, RETURN_LINES)}`,
+        })
+      }
     } else {
       absences.push(a)
     }
@@ -131,21 +141,23 @@ export function rollRound(
 
   const isOut = (id: string) => absences.some((a) => a.playerId === id)
 
-  // --- top the injury list back up --------------------------------------
+  // --- who's carrying something this week --------------------------------
+  //
+  // Drawn fresh every round rather than topped up, because nothing carries
+  // over: last week's injuries all cleared above. Same three-to-five out, but
+  // they're three to five different men, and none of them is lost for the
+  // season. They stay in `absences` rather than `away` so ensurePickable can't
+  // talk them round — a crocked man doesn't play because you're short.
   const target = rollBetween(rng, INJURY_TARGET.min, INJURY_TARGET.max)
-  let injured = absences.filter((a) => a.kind === 'injury').length
+  let injured = 0
   let guard = 0
   while (injured < target && guard++ < 40) {
     const fit = squad.filter((p) => !isOut(p.id))
     if (fit.length <= MIN_AVAILABLE) break
     const p = fit[pickIndex(rng, fit.length)]
-    const t = INJURIES[pickIndex(rng, INJURIES.length)]
-    const rounds = rollBetween(rng, t.min, t.max)
-    absences.push({ playerId: p.id, kind: 'injury', reason: t.text, until: round + rounds })
-    add({
-      playerId: p.id, playerName: p.name, kind: 'injury',
-      text: `${p.name} ${t.text}`, rounds,
-    })
+    const knock = INJURIES[pickIndex(rng, INJURIES.length)]
+    absences.push({ playerId: p.id, kind: 'injury', reason: knock, until: round + 1 })
+    add({ playerId: p.id, playerName: p.name, kind: 'injury', text: `${p.name} ${knock}` })
     injured++
   }
 

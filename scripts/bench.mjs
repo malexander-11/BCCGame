@@ -868,18 +868,34 @@ console.log('\n\x1b[1mSquad availability\x1b[0m')
 
 const awayCounts = []
 const injuredCounts = []
+const crockedPerSeason = []
 let falloutTotal = 0
 let unpickable = 0
 let noKeeperRounds = 0
 let negativeRounds = 0
+let longInjuries = 0
+let claimedLength = 0
 
 for (let s = 0; s < 300; s++) {
   let state = initialAvailability(BAGSHOT_SQUAD, s * 7919 + 11)
+  const crocked = new Set()
   for (let round = 1; round <= 9; round++) {
     if (round > 1) state = rollRound(state, BAGSHOT_SQUAD, round, s * 7919 + 11)
     awayCounts.push(state.away.length)
     injuredCounts.push(state.absences.filter((a) => a.kind === 'injury').length)
     falloutTotal += state.log.filter((e) => e.round === round && e.kind === 'fallout').length
+
+    for (const a of state.absences) {
+      if (a.kind !== 'injury') continue
+      // Raised this round with `until = round + 1`, so anything beyond that is
+      // an injury that has outlived the one week it's allowed.
+      if (a.until > round + 1) longInjuries++
+      crocked.add(a.playerId)
+    }
+    // The "3wk" badge on the team-news line is for fallouts only now.
+    claimedLength += state.log.filter(
+      (e) => e.round === round && e.kind === 'injury' && e.rounds !== undefined,
+    ).length
 
     const fit = availablePlayers(BAGSHOT_SQUAD, state)
     // A squad that can't raise a legal XI is a bug, not a challenge.
@@ -889,6 +905,7 @@ for (let s = 0; s < 300; s++) {
     // An absence must never outlive its own expiry.
     if (state.absences.some((a) => a.until <= round)) negativeRounds++
   }
+  crockedPerSeason.push(crocked.size)
 }
 
 const rounds = awayCounts.length
@@ -902,6 +919,13 @@ check(
   Math.abs(mean(awayCounts) - expectedAway), 0, 1.2, (v) => `±${v.toFixed(2)} of ${expectedAway.toFixed(1)}`,
 )
 check('injured at any time', mean(injuredCounts), 3, 5, (v) => v.toFixed(2))
+// A knock costs one Saturday. Nobody is out for a month any more, so the same
+// three-to-five out each week are three-to-five *different* men — over a nine
+// round season that's most of the squad missing a game, and none of them
+// missing a season.
+check('no injury lasts past the week', longInjuries, 0, 0, (v) => v)
+check('injuries never claim a length', claimedLength, 0, 0, (v) => v)
+check('different men crocked in a season', mean(crockedPerSeason), 20, 27, (v) => v.toFixed(1))
 check('always able to field an XI', unpickable, 0, 0, (v) => v)
 check('expired absences cleared', negativeRounds, 0, 0, (v) => v)
 check('fallouts are rare', (falloutTotal / rounds) * 100, 2, 30, (v) => v.toFixed(1) + '%')
