@@ -87,7 +87,7 @@ const BASE = {
   three: 0.0055,
   four: 0.0460,
   six: 0.00846,
-  wicket: 0.0315,
+  wicket: 0.0335,
 } as const
 
 const PHASE = {
@@ -97,46 +97,32 @@ const PHASE = {
 } as const
 
 /**
- * What a seamer and a spinner are actually *for*.
+ * Bowler type does **not** move these rates.
  *
- * Multiplies the phase rates above, so the same DEF and ATT produce a different
- * innings depending on who is holding the ball:
+ * There used to be a table here that did: spin got carted in the powerplay,
+ * squeezed hard through the middle, and leaked at the death, with pace the
+ * mirror of it. The middle-over squeeze was the part that decided things — it
+ * made "who bowls overs 10 to 35" a question with one right answer written on
+ * the player, and a spinner was less a bowler than a nine-over window you were
+ * obliged to use.
  *
- *   pace   owns the new ball and the death, leaks through the middle once the
- *          shine has gone and the batters are in
- *   spin   gets carted in the powerplay — there's a reason nobody opens with a
- *          spinner — squeezes hard through the middle, and is a liability once
- *          the batters start swinging at the end
+ * Taking only that away doesn't work, and it's worth writing down why so nobody
+ * puts half of it back. If spin is never better than pace in any phase, and the
+ * two are still level across an innings, then they are equal in every phase —
+ * there is no third option. Leave pace its new-ball and death edge with the
+ * middle levelled and spin isn't a choice any more, it's a mistake: worse with
+ * the new ball, worse at the death, and no longer better in between. The auto
+ * XI would then be *required* to pick one.
  *
- * Spin's middle-over squeeze got sharper when confidence replaced the old
- * "a spinner gets the set batter" wrinkle. That wrinkle was where a lot of
- * spin's value lived; without it the numbers have to carry it directly.
+ * So the type table is gone entirely, and what a bowler is for is carried by
+ * `swingBoost` — a real rating on a real player, which is why the new ball still
+ * belongs to somebody in particular — plus his DEF and ATT and how many overs he
+ * has left. `phaseOf` still says what the *ball* is doing; it just says the same
+ * thing to everyone holding it.
  *
- * Roughly balanced across a whole innings — an all-pace and an all-spin attack
- * on identical ratings concede within a couple of runs of each other — so this
- * changes *when* a bowler is worth having rather than making one type flatly
- * better. The bench guards that; widening these numbers without checking it is
- * how you accidentally make spin strictly worse and delete half the decision.
- *
- * The amplitude here is deliberately large. Narrow versions of this table and of
- * `swingBoost` were most of why the bowling plan didn't matter: a good
- * deployment beat a thoughtless one by two and a half runs, so the screen with
- * the most controls in the game governed about 1% of an innings. It's about
- * fourteen runs now, and getting a single call wrong — opening with the spinner,
- * holding the swing bowlers back — costs between seven and eighteen.
+ * Type still shows up where it isn't a number: nobody gets stumped off a
+ * seamer, and spinners take their wickets in different ways.
  */
-const TYPE = {
-  pace: {
-    powerplay: { boundary: 0.90, wicket: 1.20 },
-    middle: { boundary: 1.10, wicket: 0.90 },
-    death: { boundary: 0.92, wicket: 1.16 },
-  },
-  spin: {
-    powerplay: { boundary: 1.22, wicket: 0.82 },
-    middle: { boundary: 0.84, wicket: 1.16 },
-    death: { boundary: 1.30, wicket: 0.80 },
-  },
-} as const
 
 /**
  * Getting in.
@@ -418,10 +404,8 @@ export function simulateInnings(input: InningsInput): InningsResult {
     if (!bowler || !bowlerCard) continue
 
     const phase = phaseFor(over)
-    // What this bowler is for: a seamer's new ball and death, a spinner's
-    // middle-over squeeze. Same ratings, different innings.
+    // Only for how his wickets read on the card — see the note above `PHASE`.
     const kind = bowler.player.bowlType === 'spin' ? 'spin' : 'pace'
-    const type = TYPE[kind][phaseOf(over)]
     // The new ball is worth something for a dozen overs, and only to a bowler
     // who can actually use it.
     const swing = swingBoost(bowler.player.swing, over)
@@ -521,13 +505,13 @@ export function simulateInnings(input: InningsInput): InningsResult {
         : 1 + NON_OPENER_RISK * shine
 
       let pWicket =
-        BASE.wicket * wicketFactor * phase.wicket * type.wicket * field.wicket
+        BASE.wicket * wicketFactor * phase.wicket * field.wicket
         * aggWicket * settleWicket * newBall
       let pFour =
-        BASE.four * runsFactor * phase.boundary * type.boundary * field.boundary
+        BASE.four * runsFactor * phase.boundary * field.boundary
         * aggBoundary * settleRuns
       let pSix =
-        BASE.six * Math.pow(runsFactor, 1.15) * phase.boundary * type.boundary * field.boundary
+        BASE.six * Math.pow(runsFactor, 1.15) * phase.boundary * field.boundary
         * aggBoundary * settleRuns
       const rot = Math.pow(runsFactor, 0.25)
       let pOne = BASE.one * rot * phase.single * field.single * aggSingle

@@ -106,27 +106,32 @@ default ride.
 
 ### Seam and spin
 
-Whether a bowler is **pace** or **spin** changes what he does with the same
-ratings. It used to be decoration — flipping every bowler's type produced
-literally identical innings — and now it decides when he's worth having:
+Whether a bowler is **pace** or **spin** does not change the numbers. Same DEF,
+same ATT, same innings.
 
-| per over | powerplay | middle | death |
-|---|---|---|---|
-| **pace** | 5.51 econ · 0.13 wkts | 4.16 · 0.11 | 3.81 · 0.28 |
-| **spin** | 6.58 econ · 0.08 wkts | **3.75 · 0.15** | 4.47 · 0.18 |
+There was a phase table here that did change them — spin carted with the new
+ball, squeezing hard through the middle, expensive at the death, with pace the
+mirror image. The middle-over squeeze was the part that ran the game: overs 10
+to 35 had one right answer and it was printed on the player, so a spinner wasn't
+a bowler you picked, he was a nine-over window you were obliged to fill.
 
-A seamer owns the new ball and the death and leaks through the middle once the
-shine has gone. A spinner is the opposite: carted at either end, but through the
-middle he's both cheaper *and* takes half again as many wickets. Across a whole
-innings the two are within a couple of runs of each other, so this is about when
-you bowl someone, not who's better.
+Removing only that doesn't work, and it's worth knowing why before putting half
+of it back. If spin is never better than pace in any phase, and the two are
+still level across an innings, then they're equal in every phase — there's no
+third arrangement. Leave pace its new-ball and death edge and level the middle
+and spin isn't a choice, it's a penalty: worse at both ends and no longer better
+in between, while the auto XI is still *required* to pick one.
 
-Together with swing, that's what makes the bowling a decision. A good deployment
-— swing on the new ball, spin squeezing the middle, your strike bowlers at the
-death — is worth about **20 runs** against working down the list by bowling
-average. It used to be two and a half runs for the whole screen, which is why
-the attack screen was rebuilt twice before anyone noticed the problem wasn't the
-interface.
+So what a bowler is for is carried by things that sit on the player rather than
+on his type — **swing** on the new ball, DEF and ATT, and how many of his nine
+overs are left. That still makes the bowling a decision: a good deployment is
+worth about **11 runs** against working down the list by bowling average. It
+used to be twenty with the type table in, and two and a half before any of this
+existed.
+
+Type still shows up where it isn't a number. Nobody is stumped off a seamer,
+spinners take more of their wickets caught and fewer bowled, and the attack
+screen still tells you which is which.
 
 ### Getting in
 
@@ -213,7 +218,8 @@ make the side:
 ```
 
 One field isn't in the source table: **`bowlType`**, set to `spin` for the spin
-roles and `pace` otherwise.
+roles and `pace` otherwise. It doesn't move any rate — see *Seam and spin* — it
+decides how his wickets read on the card.
 
 There is **no preferred batting position** — bat anyone anywhere. The one
 exception is the top of the order: five players are marked `opener` (Grinstead,
@@ -248,7 +254,9 @@ Anyone since dropped from the squad or unavailable simply isn't there.
    picked last week loads automatically, minus anyone now unavailable, so a
    settled team is a glance and a tap; gaps are left where players are missing
    rather than filled with silent replacements. The team sheet is always eleven
-   slots, so a hole in the side has somewhere to live and is impossible to miss.
+   slots, so a hole in the side has somewhere to live and is impossible to miss —
+   and the holes stay **where the missing men stood**. Three away leaves numbers
+   three, four and eight open, not eight names quietly promoted one place each.
    Every change is two taps and lands **in place**: pick a man up — off the sheet
    or out of the squad — then tap where he bats or who he replaces. Both
    directions work, so tapping a squad player when you already have eleven arms
@@ -263,7 +271,10 @@ Anyone since dropped from the squad or unavailable simply isn't there.
    `AUTO` picks a legal side that also has a **shape**: a keeper, two new-ball
    bowlers, a spinner, five bowlers all told, and two openers. Ranking on raw
    bowling index instead — which is what it used to do — hands you five seamers
-   and no spinner, and half the bowling stops mattering.
+   and nobody to give the new ball to, and half the bowling stops mattering. The
+   spinner is now a matter of variety rather than of numbers, since bowler type
+   doesn't move any rate; nothing is lost by having one and it keeps the auto
+   side looking like a cricket team.
 2. **The new ball** — who bowls the first nine overs, and where the fielders
    stand for them. Nine overs, not forty-five: no captain plans a whole innings
    before a ball is bowled, he gives the new ball to two men and decides the
@@ -590,10 +601,12 @@ really bowls each over. A preview that lied would be worse than no preview.
 Then the ones that would have caught the attack screen being decorative:
 **deployment has to be worth having** — a good plan against working down the
 list, same five bowlers, only the timing differing — and **pace and spin have to
-stay level** across a whole innings, so widening the phase table can never
-quietly make one type flatly better and collapse the plan into "pick the good
-bowlers". Nothing in the suite noticed the first problem, which is how it
-survived two rebuilds of the screen. Alongside them, six checks on the shape of
+stay level** across a whole innings, so nothing can quietly make one type flatly
+better and collapse the plan into "pick the good bowlers". Nothing in the suite
+noticed the first problem, which is how it survived two rebuilds of the screen.
+The second check is what caught the knock-on when the type table came out: with
+fewer wickets falling, the *field* stopped being worth runs, and the base wicket
+rate had to come up to pay for what a good plan used to earn from the table. Alongside them, six checks on the shape of
 the suggested XI, and two on openers: pushing a non-opener up has to cost runs,
 and marking the *tail* as openers has to change nothing at all — otherwise the
 penalty has become a flat tax on not being an opener rather than a new ball a

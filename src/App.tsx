@@ -52,6 +52,12 @@ export default function App() {
   const [opponent, setOpponent] = useState<Club | null>(null)
   const [seed, setSeed] = useState(randomSeed)
   const [xi, setXi] = useState<Player[]>([])
+  /**
+   * Which places in last week's order are empty this week — the men who are
+   * away. Only the selection screen's opening state; once you start picking,
+   * the holes belong to it.
+   */
+  const [holes, setHoles] = useState<number[]>([])
   /** Who bowls each nine-over block. Null means "nobody has called it yet". */
   const [plan, setPlan] = useState<Plan>(emptyPlan)
   /**
@@ -179,12 +185,14 @@ export default function App() {
   const startMatch = useCallback((club: Club, league = false) => {
     const pool = league && season ? availablePlayers(squad, season.availability) : squad
     const byId = new Map(pool.map((p) => [p.id, p]))
-    const saved = loadLastXI()
-      .map((id) => byId.get(id))
-      .filter((p): p is Player => p !== undefined)
+    const last = loadLastXI().slice(0, 11).map((id) => byId.get(id))
+    const saved = last.filter((p): p is Player => p !== undefined)
     // Gaps are deliberate: if three of last week's side are away you get eight
-    // picked and three to fill, not three silent replacements.
+    // picked and three to fill, not three silent replacements — and the holes
+    // stay *where they were*. A missing number three leaves number three empty
+    // rather than promoting eight men one place each behind his back.
     const preset = saved.length > 0 ? saved : autoSelectXI(pool)
+    setHoles(saved.length > 0 ? last.flatMap((p, i) => (p === undefined ? [i] : [])) : [])
 
     setOpponent(club)
     setInLeague(league)
@@ -519,6 +527,7 @@ export default function App() {
             opponent={opponent}
             selected={xi}
             unavailable={unavailable}
+            vacancies={holes}
             forms={forms}
             onSetXI={setXi}
             onAuto={() => setXi(autoSelectXI(pickable))}
