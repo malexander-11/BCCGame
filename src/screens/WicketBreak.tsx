@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { RULES, settledLabel } from '../data/types'
+import { endOf, RULES, settledLabel } from '../data/types'
 import type { Field, FowEntry, InningsResult, Intent, Player } from '../data/types'
 import { autoField, autoIntent } from '../engine/ai'
 import { confidence, formatOvers } from '../engine/innings'
@@ -69,7 +69,7 @@ export function WicketBreak({
     // His card is the *final* one, so his runs at this point come from the last
     // over snapshot that has him — and nought if he hasn't been in one yet.
     ...(innings.overSummaries
-      .filter((o) => o.fromBall + o.balls.length <= fall.ball)
+      .filter((o) => endOf(o) <= fall.ball)
       .flatMap((o) => o.atCrease)
       .filter((b) => b.playerId === partnerCard.playerId)
       .slice(-1)[0] ?? { runs: 0, balls: 0, settled: 0 }),
@@ -78,7 +78,7 @@ export function WicketBreak({
 
   /** Who has the ball, so the field can be priced against him. */
   const bowling = innings.overSummaries.find(
-    (o) => o.fromBall < fall.ball && o.fromBall + o.balls.length >= fall.ball,
+    (o) => o.fromBall < fall.ball && endOf(o) >= fall.ball,
   )
   const bowlerNow = bowling && xi.find((p) => p.id === bowling.bowlerId)
 

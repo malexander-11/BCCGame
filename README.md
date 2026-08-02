@@ -157,8 +157,9 @@ field before his first ball, not his sixth.
 
 ### The field
 
-Where the fielders go, set at every nine-over mark and at every wicket — the
-bowling side's half of the intent decision. The ladder is how many men are up:
+Where the fielders go, set at every nine-over mark, at every wicket, and from
+the playback itself between any two overs — the bowling side's half of the
+intent decision. The ladder is how many men are up:
 **SPREAD · CONTAIN · PRESS · ATTACK**. Bring them in and you buy chances at the
 cost of the gaps behind them; push them back and you save the boundary but
 concede the single and never get him out. A ring field is the tightest thing
@@ -288,6 +289,14 @@ Anyone since dropped from the squad or unavailable simply isn't there.
    scorebook strip for every over (`. 1 4 . W 2`), so every single ball is
    visible; an over interrupted by a wicket shows only what's been bowled and
    fills in when you play on. Pause, run it at 4×, or skip it entirely.
+
+   You don't have to wait for a break to move somebody. A bar under the
+   scoreboard shows **where the fielders are standing right now**, and opening
+   it stops the clock and gives you the same four settings priced against the
+   man about to bowl and the man about to face. It applies from the next ball
+   and play carries straight on — the overs you have already watched come out
+   ball for ball identical, because the instruction is stamped with the ball it
+   was given on rather than replacing what came before.
 4. **Interval** — your order shown back with the target now known, and how the
    openers play the first nine overs.
 5. **The chase** — you bat, and the innings **stops for drinks every nine overs
@@ -296,6 +305,13 @@ Anyone since dropped from the squad or unavailable simply isn't there.
    next nine: **defend, build, push, attack**, one row per batter with his own
    numbers. A wicket gets the same compact card the fielding innings does — who's
    out, who's in, and what the new man is to do about it.
+
+   And, as in the field, **you can send out word between any two overs** without
+   waiting for the drinks cart: the bar under the scoreboard reads what each man
+   at the crease is currently trying to do, and opening it pauses play and lets
+   you change either of them from the next ball. Only what you actually tap is
+   sent, so looking and thinking better of it leaves a man reading the chase for
+   himself.
 
    There is no autopilot underneath — tell them to block out a chase you could
    have won and they will. A **DLS par score** runs alongside the required rate,

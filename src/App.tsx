@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { BLOCK_OVERS, BREAK_OVERS, orderFor, RULES } from './data/types'
+import { BLOCK_OVERS, BREAK_OVERS, fieldAt, orderFor, RULES } from './data/types'
 import type {
   BowlingPlan as Plan, Club, Field, FieldOrder, InningsResult, Intent, MatchResult,
   Order, Player,
@@ -21,6 +21,7 @@ import {
   resetSquad, saveLastXI, savePrefs, saveSeason, saveSquad, usingCustomSquad,
 } from './storage'
 import type { Record as SeasonRecord } from './storage'
+import { fieldLabel, intentLabel, LiveField, LiveIntent } from './components/LiveOrders'
 import { Home } from './screens/Home'
 import { Season } from './screens/Season'
 import { SeasonStats } from './screens/SeasonStats'
@@ -57,6 +58,10 @@ export default function App() {
    * Where the fielders stand and what each batter is under orders to do —
    * both append-only logs stamped with the ball they were given on, so a
    * decision made at over 27 can never reach back and change over 3.
+   *
+   * Which is what lets either of them be changed from inside the playback, at
+   * any point rather than only at a break: appending re-runs the innings, and
+   * every ball already watched comes out identical.
    */
   const [fields, setFields] = useState<FieldOrder[]>([])
   const [orders, setOrders] = useState<Order[]>([])
@@ -561,6 +566,19 @@ export default function App() {
             stopAt={stopsIn(first)}
             startAt={watchedTo1}
             onBreak={fieldBreak}
+            orders={{
+              label: 'THE FIELD',
+              standing: (at) => fieldLabel(first, fields, at),
+              panel: (at, close) => (
+                <LiveField
+                  innings={first}
+                  xi={xi}
+                  at={at}
+                  standing={fieldAt(fields, at)}
+                  onSet={(f) => { bowlOn({ at, field: f }); close() }}
+                />
+              ),
+            }}
             onDone={() => setScreen('break')}
           />
         )
@@ -618,6 +636,19 @@ export default function App() {
             stopAt={stopsIn(second)}
             startAt={watchedTo}
             onBreak={(ball) => openBreak(second, ball, 'chase')}
+            orders={{
+              label: 'ORDERS',
+              standing: (at) => intentLabel(second, order, orders, at),
+              panel: (at, close) => (
+                <LiveIntent
+                  innings={second}
+                  order={order}
+                  at={at}
+                  standing={(id) => orderFor(orders, id, at)}
+                  onSet={(given) => { playOn(at, given); close() }}
+                />
+              ),
+            }}
             onDone={() => { finishChase(second); setScreen('result') }}
           />
         )
