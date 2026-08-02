@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { RULES, settledLabel } from '../data/types'
+import type { ReactNode } from 'react'
+import { endOf, RULES, settledLabel } from '../data/types'
 import type { BallEvent, InningsResult, OverSummary } from '../data/types'
 import { formatOvers } from '../engine/innings'
 import { dlsPar } from '../engine/dls'
@@ -62,8 +63,43 @@ function tokensBy(over: OverSummary, ball: number): number {
   return over.balls.length
 }
 
+/**
+ * ...and back the other way: how many *legal* deliveries those tokens are.
+ *
+ * The two are not the same number and the difference is not cosmetic. It sets
+ * the overs on the scoreboard, the required rate, and — since the manager can
+ * give an order from here — the ball an instruction is stamped with. Count an
+ * over with a wide in it as seven and you hand him a decision that takes effect
+ * a ball after the one he was looking at.
+ */
+function legalBy(over: OverSummary, tokens: number): number {
+  let legal = 0
+  for (let i = 0; i < Math.min(tokens, over.balls.length); i++) {
+    const t = over.balls[i]
+    if (t !== 'wd' && t !== 'nb') legal++
+  }
+  return legal
+}
+
+/**
+ * The manager's live controls: whatever he can change from wherever playback
+ * has got to, rather than only at a break.
+ *
+ * Supplied by the caller because the two innings change different things — the
+ * field in one, the batters' orders in the other — and neither of them is
+ * playback's business.
+ */
+export interface LiveControls {
+  /** What's being changed, e.g. "THE FIELD". */
+  label: string
+  /** What's set right now, given the ball on screen — the bar reads this. */
+  standing: (at: number) => string
+  /** The panel itself. `done` closes it and lets play go on. */
+  panel: (at: number, done: () => void) => ReactNode
+}
+
 export function Sim({
-  innings, eyebrow, title, stopAt = [], onBreak, startAt = 0, onDone,
+  innings, eyebrow, title, stopAt = [], onBreak, startAt = 0, orders, onDone,
 }: {
   innings: InningsResult
   eyebrow: string
@@ -82,18 +118,30 @@ export function Sim({
   onBreak?: (ball: number) => void
   /** Balls already played, so coming back from a break resumes rather than replays. */
   startAt?: number
+  /**
+   * Captaincy between overs. Opening the panel pauses; applying hands the
+   * caller the ball we're stopped on, and it comes back as a re-simulated
+   * innings whose prefix is identical — so play simply carries on.
+   */
+  orders?: LiveControls
   onDone: () => void
 }) {
   const overs = innings.overSummaries
   /** The over index to resume on — the one containing the ball we stopped at. */
-  const resumeStep = overs.findIndex((o) => o.fromBall + o.balls.length > startAt)
+  const resumeStep = overs.findIndex((o) => endOf(o) > startAt)
   const [step, setStep] = useState(resumeStep < 0 ? overs.length : resumeStep)
   const [feed, setFeed] = useState<FeedItem[]>([])
   const [flash, setFlash] = useState<string | null>(null)
   const [speed, setSpeed] = useState(1)
   const [paused, setPaused] = useState(false)
+  const [ordersOpen, setOrdersOpen] = useState(false)
 
   const done = useRef(false)
+  /**
+   * Whether play was already stopped when the orders panel opened, so closing
+   * it resumes only what the panel itself halted.
+   */
+  const pausedBefore = useRef(false)
   /** How much of each over the feed is showing, so a part-over can grow. */
   const shown = useRef(new Map<number, number>())
   /** Breaks already taken, so resuming doesn't stop on the same ball again. */
@@ -110,7 +158,7 @@ export function Sim({
     }
 
     const summary = overs[step]
-    const lastBall = summary.fromBall + summary.balls.length
+    const lastBall = endOf(summary)
     // The first stop inside this over that we haven't already taken.
     const stop = stopAt
       .filter((b) => b > summary.fromBall && b <= lastBall && !taken.current.has(b))
@@ -143,6 +191,13 @@ export function Sim({
       }
     }
 
+    // Pausing simply stops scheduling the next tick — the feed and the score
+    // stay exactly where they are. That has to hold for a *break* as well:
+    // stopped is stopped, and a wicket two balls after you opened the orders
+    // panel must not snatch the decision away half-made. `taken` is left alone
+    // so the break still happens the moment play goes on.
+    if (paused) return
+
     // A break. Stop on the ball rather than ticking past it, and only once —
     // coming back, `taken` is already set so play resumes straight through.
     if (onBreak && stop !== undefined) {
@@ -151,9 +206,6 @@ export function Sim({
       return () => clearTimeout(t)
     }
 
-    // Pausing simply stops scheduling the next tick — the feed and the score
-    // stay exactly where they are.
-    if (paused) return
     const t = setTimeout(() => setStep((s) => s + 1), delay / speed)
     return () => clearTimeout(t)
   }, [step, speed, paused, overs, innings.events, onDone, onBreak, stopAt])
@@ -163,7 +215,7 @@ export function Sim({
   /** Where in the innings the *display* has got to, which may be mid-over. */
   const at = finished || !now
     ? innings.balls
-    : now.fromBall + Math.min(shown.current.get(now.over) ?? 0, now.balls.length)
+    : now.fromBall + legalBy(now, shown.current.get(now.over) ?? 0)
   const partial = !finished && now !== undefined && (shown.current.get(now.over) ?? 0) < now.balls.length
   // Mid-over, the running total has to be reconstructed from the strip rather
   // than read off the over summary, which is the score at the *end* of it.
@@ -196,6 +248,18 @@ export function Sim({
     : partial
       ? overs[step - 1]?.atCrease ?? []
       : now.atCrease
+
+  // Play stops while you decide — a field set two overs after you thought of it
+  // isn't the field you set.
+  const openOrders = () => {
+    pausedBefore.current = paused
+    setPaused(true)
+    setOrdersOpen(true)
+  }
+  const closeOrders = () => {
+    setOrdersOpen(false)
+    setPaused(pausedBefore.current)
+  }
 
   return (
     <div className="pt-8 pop">
@@ -322,6 +386,44 @@ export function Sim({
           </div>
         </div>
       )}
+
+      {orders && !finished && (ordersOpen ? (
+        <div
+          className="rounded-xl px-3 py-3 mt-2"
+          style={{ background: theme.surface, border: `1px solid ${theme.gold}55` }}
+        >
+          <div className="flex items-baseline justify-between mb-2">
+            <span className="disp text-[9px] tracking-widest" style={{ color: theme.gold }}>
+              {orders.label}
+            </span>
+            <button
+              onClick={closeOrders}
+              className="disp text-[9px] tracking-widest px-2 py-1 -mr-1 active:scale-95 transition-transform"
+              style={{ color: theme.faint }}
+            >
+              LEAVE IT
+            </button>
+          </div>
+          {orders.panel(at, closeOrders)}
+        </div>
+      ) : (
+        <button
+          onClick={openOrders}
+          className="w-full rounded-xl px-3 py-2.5 mt-2 flex items-center gap-2.5
+                     active:scale-[0.99] transition-all"
+          style={{ background: theme.surface, border: `1px solid ${theme.border}` }}
+        >
+          <span className="disp text-[9px] tracking-widest shrink-0" style={{ color: theme.faint }}>
+            {orders.label}
+          </span>
+          <span className="disp text-[12px] font-bold tracking-wide flex-1 text-left truncate">
+            {orders.standing(at)}
+          </span>
+          <span className="disp text-[9px] tracking-widest shrink-0" style={{ color: theme.gold }}>
+            CHANGE ›
+          </span>
+        </button>
+      ))}
 
       <div className="mt-4">
         <Eyebrow>BALL BY BALL</Eyebrow>

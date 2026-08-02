@@ -66,7 +66,8 @@ export interface Club {
 // ------------------------------------------------------------- chase orders
 
 /**
- * How hard the batters are trying, set for one nine-over block at a time.
+ * How hard the batters are trying — a standing instruction, changeable between
+ * any two overs rather than only at the nine-over breaks.
  *
  * The number is *intent* — how many shots they play — not an outcome. What that
  * intent is worth depends entirely on who is at the crease: power turns shots
@@ -109,7 +110,9 @@ export const intentPush = (i: Intent) => INTENTS.find((x) => x.id === i)!.push
  * The log is append-only and read as *the most recent entry at or before the
  * current ball*. That is what keeps a mid-innings decision honest: replaying the
  * innings with a longer log reproduces every earlier ball exactly, because those
- * balls read the same entries they read the first time.
+ * balls read the same entries they read the first time. It is also what lets an
+ * order be given from the middle of the playback rather than only at a break —
+ * the overs already watched come out ball for ball the same.
  */
 export interface Order {
   /** Legal balls bowled when it was given — it applies from the next one. */
@@ -138,6 +141,9 @@ export function orderFor(orders: Order[], playerId: string, balls: number): Inte
  * worth depends on who's bowling: men round the bat only pay off for someone who
  * finds the edge, and a spread field only pays for someone disciplined enough to
  * bowl to it. `fieldEffect` in the engine is where that happens.
+ *
+ * Movable between any two overs, for the obvious reason: a captain watching an
+ * over go for fourteen does not wait seven more before moving somebody.
  */
 export type Field = 'spread' | 'contain' | 'press' | 'attack'
 
@@ -194,8 +200,11 @@ export const BREAK_OVERS = Array.from({ length: BLOCK_COUNT - 1 }, (_, i) => (i 
 // ---------------------------------------------------------------- the attack
 
 /**
- * How the bowling is decided: **one nine-over block at a time**, the same
- * rhythm the batting instructions run on.
+ * How the bowling is decided: **one nine-over block at a time**.
+ *
+ * Unlike the field and the batting orders, this one really is block-shaped —
+ * a spell is a spell, and taking a man off after one over isn't captaincy, it's
+ * fidgeting.
  *
  * This has been through three wrong answers, all of them versions of asking for
  * the whole innings up front. First a *preference* — hold him for the new ball —
@@ -369,6 +378,21 @@ export interface OverSummary {
    */
   figures: BowlerFigures
 }
+
+/**
+ * Legal deliveries in an over — **not** `balls.length`, which counts tokens,
+ * and a wide is a token that isn't a ball.
+ *
+ * Worth a named function because the two are interchangeable right up until
+ * somebody bowls a wide, and then every use of the wrong one is a quiet
+ * off-by-one in a different place: the overs on the scoreboard, the required
+ * rate, which over a mid-innings instruction lands in.
+ */
+export const legalBalls = (o: OverSummary) =>
+  o.balls.filter((t) => t !== 'wd' && t !== 'nb').length
+
+/** Legal balls bowled by the end of this over. */
+export const endOf = (o: OverSummary) => o.fromBall + legalBalls(o)
 
 export interface FowEntry {
   score: number

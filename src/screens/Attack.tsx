@@ -232,16 +232,6 @@ export function Attack({
             {p.name} swings it — that's long gone by now.
           </div>
         )}
-        {on && spin && from >= RULES.deathFrom && (
-          <div className="text-[10px] mt-1.5" style={{ color: theme.pitch }}>
-            A spinner at the death goes for about a run an over more.
-          </div>
-        )}
-        {on && spin && from <= RULES.powerplayUntil && (
-          <div className="text-[10px] mt-1.5" style={{ color: theme.pitch }}>
-            Spin with the new ball gets carted. He's worth far more in the middle.
-          </div>
-        )}
       </div>
     )
   }

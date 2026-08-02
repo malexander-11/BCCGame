@@ -56,6 +56,24 @@ interface Slot {
   at: number
   /** True for the slot left open by dropping someone, as opposed to the tail. */
   open: boolean
+  /** Which of the eleven places this is, 0-10. */
+  slot: number
+}
+
+/**
+ * Open places are held as **team-sheet positions**, 0-10, not as indexes into
+ * the XI array. With one hole the two are the same number and it never mattered;
+ * with three of last week's side away they diverge immediately, and an index is
+ * then a promise about a list that has a hole in it.
+ *
+ * A place can only stand open while there is somebody missing to stand there,
+ * so the list is trimmed to however many are actually free, keeping the newest —
+ * a hole you made a moment ago outlives one you left behind three swaps back.
+ */
+const trimOpen = (slots: number[], picked: number): number[] => {
+  const free = 11 - picked
+  if (free <= 0) return []
+  return [...new Set(slots)].slice(-free)
 }
 
 const batIndex = (p: Player) => 0.62 * p.bat.skill + 0.38 * p.bat.pwr
@@ -64,13 +82,20 @@ const availOf = (p: Player) => p.availability ?? DEFAULT_AVAILABILITY
 const firstName = (p: Player) => p.name.split(' ')[0]
 
 export function Selection({
-  squad, opponent, selected, unavailable, forms, onSetXI, onAuto, onBack, onNext,
+  squad, opponent, selected, unavailable, vacancies, forms,
+  onSetXI, onAuto, onBack, onNext,
 }: {
   squad: Player[]
   opponent: Club
   selected: Player[]
   /** Player id → why they're missing this week. Empty outside season mode. */
   unavailable?: Map<string, string>
+  /**
+   * Places last week's side left empty — the positions of the men who aren't
+   * available. Opening state only: once you start moving people about, the
+   * holes are yours.
+   */
+  vacancies?: number[]
   /** Tracked season form by player id. Absent in a friendly. */
   forms?: Record<string, number>
   /** The XI *is* the batting order, so every change — picking, dropping,
@@ -86,11 +111,15 @@ export function Selection({
   const [availableOnly, setAvailableOnly] = useState(true)
   const [held, setHeld] = useState<Held | null>(null)
   /**
-   * The place in the order last vacated. Dropping a man leaves his slot open
+   * The places in the order standing empty. Dropping a man leaves his slot open
    * rather than closing the ranks, so whoever you pick next walks in at three
    * instead of arriving at eleven and needing eight taps to get back.
+   *
+   * It opens on whoever is missing this week, for the same reason: three men
+   * away should read as three holes in your side, not as eight names that have
+   * quietly all moved up one.
    */
-  const [gap, setGap] = useState<number | null>(null)
+  const [open, setOpen] = useState<number[]>(() => trimOpen(vacancies ?? [], selected.length))
 
   const out = unavailable ?? new Map<string, string>()
   const ids = useMemo(() => new Set(selected.map((p) => p.id)), [selected])
@@ -107,35 +136,45 @@ export function Selection({
   const heldMan = holding?.from === 'xi' ? selected[holding.index] : null
   const arming = holding?.from === 'squad' ? holding.player : null
 
-  /** Where an unheld pick lands: the open slot if there is one, else the tail. */
-  const landing = gap !== null && selected.length < 11
-    ? Math.min(gap, selected.length)
-    : selected.length
-
   const sheet = useMemo<Slot[]>(() => {
-    const open = gap !== null && selected.length < 11 ? Math.min(gap, selected.length) : -1
+    const holes = new Set(trimOpen(open, selected.length))
     const rows: Slot[] = []
     let i = 0
     for (let slot = 0; slot < 11; slot += 1) {
-      if (slot === open || i >= selected.length) {
-        rows.push({ p: null, i: -1, at: i, open: slot === open })
+      // A place someone has vacated, or — once the names run out — the tail.
+      if (holes.has(slot) || i >= selected.length) {
+        rows.push({ p: null, i: -1, at: i, open: holes.has(slot), slot })
         continue
       }
-      rows.push({ p: selected[i], i, at: i, open: false })
+      rows.push({ p: selected[i], i, at: i, open: false, slot })
       i += 1
     }
     return rows
-  }, [selected, gap])
+  }, [selected, open])
 
-  /** Hand back a new XI and put the two-tap state back to rest. */
-  const set = (next: Player[], openAt: number | null = null) => {
+  /** The first place still to be filled — where an unheld pick lands. */
+  const vacant = sheet.find((r) => r.open) ?? sheet.find((r) => r.p === null)
+  const landing = vacant?.at ?? selected.length
+
+  /** Which of the eleven places a man in the XI is standing in. */
+  const slotOf = (i: number) => sheet.find((r) => r.i === i)?.slot ?? i
+
+  /**
+   * Hand back a new XI and put the two-tap state back to rest.
+   *
+   * The open places carry across by default: swapping a man at seven is no
+   * reason for the hole at three to close up.
+   */
+  const set = (next: Player[], holes: number[] = open) => {
     onSetXI(next)
-    setGap(openAt)
+    setOpen(trimOpen(holes, next.length))
     setHeld(null)
   }
 
-  const dropAt = (i: number) => set([...selected.slice(0, i), ...selected.slice(i + 1)], i)
-  const bringIn = (p: Player, at: number) => set([...selected.slice(0, at), p, ...selected.slice(at)])
+  const dropAt = (i: number) =>
+    set([...selected.slice(0, i), ...selected.slice(i + 1)], [...open, slotOf(i)])
+  const bringIn = (p: Player, at: number, slot: number) =>
+    set([...selected.slice(0, at), p, ...selected.slice(at)], open.filter((s) => s !== slot))
   const replaceAt = (i: number, p: Player) => set(selected.map((x, n) => (n === i ? p : x)))
 
   const swapSlots = (a: number, b: number) => {
@@ -143,7 +182,7 @@ export function Selection({
     const man = next[a]
     next[a] = next[b]
     next[b] = man
-    set(next, gap)
+    set(next)
   }
 
   /** Nudge a player one place up or down the order. */
@@ -156,7 +195,7 @@ export function Selection({
   const tapSlot = (row: Slot) => {
     if (holding?.from === 'squad') {
       if (row.p) replaceAt(row.i, holding.player)
-      else bringIn(holding.player, row.at)
+      else bringIn(holding.player, row.at, row.slot)
       return
     }
     if (holding?.from === 'xi') {
@@ -178,7 +217,7 @@ export function Selection({
       setHeld(holding.player.id === p.id ? null : { from: 'squad', player: p })
       return
     }
-    if (selected.length < 11) { bringIn(p, landing); return }
+    if (selected.length < 11) { bringIn(p, landing, vacant?.slot ?? -1); return }
     // A full side. Rather than a tap that quietly does nothing, hold him ready
     // and ask who he's coming in for.
     setHeld({ from: 'squad', player: p })
@@ -210,15 +249,24 @@ export function Selection({
     }
   }, [squad, sort, pickedOnly, availableOnly, ids, out, forms])
 
+  /** The places standing empty, in batting order. */
+  const holes = sheet.filter((r) => r.open)
+  const holeList = holes.map((r) => r.slot + 1)
+  const numbers = holeList.length > 1
+    ? `${holeList.slice(0, -1).join(', ')} and ${holeList[holeList.length - 1]}`
+    : `${holeList[0]}`
+
   const prompt = arming
     ? `${arming.name} is ready — tap the man he comes in for.`
     : heldMan
       ? `${firstName(heldMan)} is up — tap where he should bat, or tap his replacement below.`
-      : gap !== null && selected.length < 11
-        ? `Number ${landing + 1} is open — tap whoever should bat there.`
-        : selected.length === 0
-          ? 'Tap names below to pick your side. They bat in the order you add them.'
-          : 'Tap a man on the sheet to move him or swap him out. ✕ drops him.'
+      : holes.length === 1
+        ? `Number ${numbers} is open — tap whoever should bat there.`
+        : holes.length > 1
+          ? `Numbers ${numbers} are open — tap whoever comes in at ${holeList[0]}.`
+          : selected.length === 0
+            ? 'Tap names below to pick your side. They bat in the order you add them.'
+            : 'Tap a man on the sheet to move him or swap him out. ✕ drops him.'
 
   return (
     <div className="pt-6 pb-4 pop">
@@ -254,7 +302,7 @@ export function Selection({
           </div>
         </div>
         <GhostButton
-          onClick={() => { onAuto(); setHeld(null); setGap(null) }}
+          onClick={() => { onAuto(); setHeld(null); setOpen([]) }}
           className="!px-4"
         >
           AUTO

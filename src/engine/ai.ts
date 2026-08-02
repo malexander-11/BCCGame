@@ -145,21 +145,26 @@ export const openingIntent = (target: number) => autoIntents(target)[0]
 /**
  * How much this bowler wants the next nine overs.
  *
- * The same shape a captain works to: the new ball to whoever swings it, the
- * middle to the spinners, and your best strike bowler saved for the end. `left`
- * breaks ties toward whoever still has overs to burn, which is what stops the
- * last block being handed to three men who have already bowled their nine.
+ * The same shape a captain works to: the new ball to whoever swings it, and
+ * your best strike bowler saved for the end. `left` breaks ties toward whoever
+ * still has overs to burn, which is what stops the last block being handed to
+ * three men who have already bowled their nine.
+ *
+ * It used to steer spinners into the middle overs and out of everything else,
+ * back when the engine paid for that. It doesn't any more — bowler type moves
+ * no numbers — so advising it would be advising a habit, and this screen's
+ * suggestions are meant to be worth taking.
  */
 function appetite(p: Player, block: number, left: number): number {
   const { from } = blockRange(block)
   const phase = phaseOf(from)
   const swings = (p.swing ?? 0) >= 50 && from <= SWING_WINDOW
-  const spin = p.bowlType === 'spin'
 
   let want: number
-  if (phase === 'powerplay') want = swings ? 1.15 : spin ? 0.15 : 0.65
-  else if (phase === 'death') want = spin ? 0.20 : 0.45 + (p.bowl.att / 100) * 0.55
-  else want = spin ? 1.0 : swings ? 0.55 : 0.62
+  if (phase === 'powerplay') want = swings ? 1.15 : 0.65
+  else if (phase === 'death') want = 0.45 + (p.bowl.att / 100) * 0.55
+  // Whoever isn't wanted for the new ball or the death does the donkey work.
+  else want = swings ? 0.55 : 0.85
 
   // A man with nothing left is no use however much he suits the moment.
   if (left <= 0) return -1
